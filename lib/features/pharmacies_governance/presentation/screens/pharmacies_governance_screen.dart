@@ -16,6 +16,7 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
   List<Map<String, dynamic>> _pharmacies = [];
   String _searchQuery = '';
   String _governorateFilter = 'الكل';
+  String _statusFilter = 'الكل';
 
   @override
   void initState() {
@@ -34,6 +35,7 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
         rating_avg,
         rating_count,
         subscription_status,
+        has_delivery,
         profiles (
           id,
           full_name,
@@ -65,13 +67,22 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
 
   Future<void> _togglePharmacyStatus(String pharmacyId, bool currentStatus) async {
     try {
+      await _client.rpc('admin_toggle_entity_approval', params: {
+        'p_id': pharmacyId,
+        'p_is_approved': !currentStatus,
+      });
+
       await _client.from('profiles').update({'is_approved': !currentStatus}).eq('id', pharmacyId);
-      _fetchPharmacies();
+      await _client.from('pharmacies').update({
+        'subscription_status': !currentStatus ? 'ACTIVE' : 'SUSPENDED'
+      }).eq('id', pharmacyId);
+
+      await _fetchPharmacies();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(!currentStatus ? '🟢 تم تفعيل واعتماد الصيدلية' : '⏸️ تم تجميد الصيدلية'),
+            content: Text(!currentStatus ? '🟢 تم تفعيل واعتماد الصيدلية بنجاح' : '⏸️ تم تجميد وإيقاف الصيدلية بنجاح'),
             backgroundColor: !currentStatus ? AdminColors.success : AdminColors.warning,
           ),
         );
@@ -138,75 +149,72 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
                         separatorBuilder: (context, index) => const SizedBox(height: 8),
                         itemBuilder: (context, index) {
                           final prod = products[index];
-                          final avail = prod['availability_status'] ?? 'AVAILABLE';
-                          final isAvail = avail == 'AVAILABLE';
+                          final isAvailable = prod['availability_status'] == 'AVAILABLE';
+                          final isLow = prod['availability_status'] == 'LOW_STOCK';
 
                           return Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
                               color: AdminColors.backgroundCanvas,
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(10),
                               border: Border.all(color: AdminColors.cardBorder),
                             ),
                             child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                // Thumbnail
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.network(
-                                    prod['image_url'] ?? 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=100',
-                                    width: 44,
-                                    height: 44,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) => Container(
-                                      width: 44,
-                                      height: 44,
-                                      color: Colors.grey.shade200,
-                                      child: const Icon(Icons.medication_rounded, color: Colors.grey),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-
-                                // Details
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(prod['name'] ?? '', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13)),
-                                      Text(
-                                        'الفئة: ${_translateCategory(prod['category'] ?? '')} | ${prod['description'] ?? ''}',
-                                        style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textSecondary),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-
-                                // Price & Status
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                Row(
                                   children: [
-                                    Text('${prod['price']} ج.م', style: GoogleFonts.cairo(fontWeight: FontWeight.w900, color: AdminColors.primaryDark, fontSize: 14)),
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      padding: const EdgeInsets.all(8),
                                       decoration: BoxDecoration(
-                                        color: isAvail ? AdminColors.accentMintLight : Colors.red.withValues(alpha: 0.1),
-                                        borderRadius: BorderRadius.circular(6),
+                                        color: AdminColors.primaryDark.withValues(alpha: 0.08),
+                                        borderRadius: BorderRadius.circular(8),
                                       ),
-                                      child: Text(
-                                        isAvail ? 'متوفر بالمخزون' : 'غير متوفر',
-                                        style: GoogleFonts.cairo(fontSize: 10, color: isAvail ? AdminColors.success : AdminColors.emergency, fontWeight: FontWeight.bold),
-                                      ),
+                                      child: const Icon(Icons.medication_rounded, color: AdminColors.primaryDark, size: 20),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(prod['name'] ?? 'منتج', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13.5)),
+                                        Text('الفئة: ${prod['category']} • السعر: ${prod['price']} ج.م', style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textSecondary)),
+                                      ],
                                     ),
                                   ],
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: isAvailable
+                                        ? AdminColors.accentMintLight
+                                        : isLow
+                                            ? Colors.amber.withValues(alpha: 0.15)
+                                            : Colors.red.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    isAvailable ? 'متوفر بالمخزون 🟢' : isLow ? 'كمية محدودة ⚠️' : 'غير متوفر 🔴',
+                                    style: GoogleFonts.cairo(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: isAvailable ? AdminColors.success : isLow ? Colors.amber.shade900 : AdminColors.emergency,
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),
                           );
                         },
                       ),
+              ),
+
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: Text('إغلاق', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+                ),
               ),
             ],
           ),
@@ -215,33 +223,25 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
     );
   }
 
-  String _translateCategory(String cat) {
-    switch (cat) {
-      case 'MEDICINES':
-        return 'أدوية ومسكنات';
-      case 'VITAMINS':
-        return 'فيتامينات ومكملات';
-      case 'SKINCARE':
-        return 'عناية بالبشرة';
-      case 'EQUIPMENT':
-        return 'أجهزة ومستلزمات';
-      case 'BABY_CARE':
-        return 'أمومة ورعاية أطفال';
-      default:
-        return cat;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final filtered = _pharmacies.where((p) {
-      final name = p['name']?.toString() ?? '';
-      final gov = p['governorate']?.toString() ?? '';
+      final profile = p['profiles'] as Map<String, dynamic>? ?? {};
+      final name = p['name']?.toString() ?? profile['full_name']?.toString() ?? '';
+      final gov = p['governorate']?.toString() ?? profile['governorate']?.toString() ?? '';
+      final isApproved = (profile['is_approved'] == true) &&
+          (p['subscription_status'] != 'SUSPENDED' && p['subscription_status'] != 'FROZEN');
 
       final matchGov = _governorateFilter == 'الكل' || gov == _governorateFilter;
-      final matchSearch = _searchQuery.isEmpty || name.contains(_searchQuery) || gov.contains(_searchQuery);
+      final matchStatus = _statusFilter == 'الكل' ||
+          (_statusFilter == 'معتمد' && isApproved) ||
+          (_statusFilter == 'مجمد' && !isApproved);
 
-      return matchGov && matchSearch;
+      final matchSearch = _searchQuery.isEmpty ||
+          name.contains(_searchQuery) ||
+          gov.contains(_searchQuery);
+
+      return matchGov && matchStatus && matchSearch;
     }).toList();
 
     return Padding(
@@ -261,21 +261,21 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: AdminColors.accentMint.withValues(alpha: 0.2),
+                          color: AdminColors.primaryDark.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Icon(Icons.local_pharmacy_rounded, color: AdminColors.primaryDark, size: 24),
                       ),
                       const SizedBox(width: 10),
                       Text(
-                        'مركز رقابة الصيدليات وتداول الروشتات والمخزون',
+                        'مركز رقابة وحوكمة الصيدليات ومتاجر الأدوية',
                         style: GoogleFonts.cairo(fontSize: 18, fontWeight: FontWeight.w900, color: AdminColors.textPrimary),
                       ),
                     ],
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'مراقبة سلاسل الصيدليات المعتمدة، فحص كتالوج الأدوية والمستلزمات، والتأكد من توافر المخزون',
+                    'متابعة الصيدليات المعتمدة، فحص المخزون والروشتات، واعتماد وتجميد الصيدليات فورياً',
                     style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textSecondary),
                   ),
                 ],
@@ -287,7 +287,7 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
                 icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: Text('تحديث الصيدليات', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+                label: Text('تحديث القائمة', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
                 onPressed: _fetchPharmacies,
               ),
             ],
@@ -295,9 +295,10 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
 
           const SizedBox(height: 20),
 
-          // Search & Filter
+          // Filters Bar
           Row(
             children: [
+              // Search
               Expanded(
                 child: TextField(
                   style: GoogleFonts.cairo(fontSize: 13),
@@ -315,6 +316,8 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
                 ),
               ),
               const SizedBox(width: 12),
+
+              // Governorate Filter
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14),
                 decoration: BoxDecoration(color: AdminColors.surfaceWhite, borderRadius: BorderRadius.circular(12), border: Border.all(color: AdminColors.cardBorder)),
@@ -322,8 +325,23 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
                   child: DropdownButton<String>(
                     value: _governorateFilter,
                     style: GoogleFonts.cairo(color: AdminColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
-                    items: ['الكل', 'القاهرة', 'الجيزة', 'الإسكندرية', 'الدقهلية', 'الغربية'].map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                    items: ['الكل', 'القاهرة', 'الجيزة', 'الإسكندرية', 'الدقهلية', 'الغربية', 'الشرقية', 'المنوفية', 'البحيرة'].map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
                     onChanged: (val) => setState(() => _governorateFilter = val ?? 'الكل'),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+
+              // Status Filter
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(color: AdminColors.surfaceWhite, borderRadius: BorderRadius.circular(12), border: Border.all(color: AdminColors.cardBorder)),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _statusFilter,
+                    style: GoogleFonts.cairo(color: AdminColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
+                    items: ['الكل', 'معتمد', 'مجمد'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                    onChanged: (val) => setState(() => _statusFilter = val ?? 'الكل'),
                   ),
                 ),
               ),
@@ -332,7 +350,7 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
 
           const SizedBox(height: 16),
 
-          // Pharmacies List
+          // List
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator(color: AdminColors.primaryDark))
@@ -345,7 +363,8 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
                           final pha = filtered[index];
                           final profile = pha['profiles'] as Map<String, dynamic>? ?? {};
                           final products = (pha['products'] as List?) ?? [];
-                          final isApproved = profile['is_approved'] as bool? ?? true;
+                          final isApproved = (profile['is_approved'] == true) &&
+                              (pha['subscription_status'] != 'SUSPENDED' && pha['subscription_status'] != 'FROZEN');
 
                           return Container(
                             padding: const EdgeInsets.all(16),
@@ -359,18 +378,19 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
                             ),
                             child: Row(
                               children: [
-                                // Icon / Avatar
+                                // Icon
                                 Container(
-                                  padding: const EdgeInsets.all(12),
+                                  width: 48,
+                                  height: 48,
                                   decoration: BoxDecoration(
-                                    color: AdminColors.accentMint.withValues(alpha: 0.15),
+                                    color: AdminColors.accentMintLight,
                                     borderRadius: BorderRadius.circular(12),
                                   ),
-                                  child: const Icon(Icons.local_pharmacy_rounded, color: AdminColors.primaryDark, size: 26),
+                                  child: const Icon(Icons.local_pharmacy_rounded, color: AdminColors.primaryDark),
                                 ),
                                 const SizedBox(width: 14),
 
-                                // Pharmacy Info
+                                // Info
                                 Expanded(
                                   flex: 3,
                                   child: Column(
@@ -379,20 +399,20 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
                                       Row(
                                         children: [
                                           Text(
-                                            pha['name'] ?? 'الصيدلية',
-                                            style: GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w800, color: AdminColors.textPrimary),
+                                            pha['name'] ?? profile['full_name'] ?? 'صيدلية المنظومة',
+                                            style: GoogleFonts.cairo(fontSize: 14.5, fontWeight: FontWeight.w800, color: AdminColors.textPrimary),
                                           ),
                                           const SizedBox(width: 8),
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                             decoration: BoxDecoration(
                                               color: isApproved ? AdminColors.accentMintLight : Colors.red.withValues(alpha: 0.1),
                                               borderRadius: BorderRadius.circular(6),
                                             ),
                                             child: Text(
-                                              isApproved ? 'معتمدة 🟢' : 'مجمدة 🔴',
+                                              isApproved ? 'معتمدة 🟢' : 'مجمدة / موقوفة 🔴',
                                               style: GoogleFonts.cairo(
-                                                fontSize: 10.5,
+                                                fontSize: 11,
                                                 color: isApproved ? AdminColors.success : AdminColors.emergency,
                                                 fontWeight: FontWeight.bold,
                                               ),
@@ -400,64 +420,66 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
                                           ),
                                         ],
                                       ),
+                                      const SizedBox(height: 2),
                                       Text(
-                                        '📍 ${pha['governorate']} - ${pha['address_text']}',
+                                        '📍 ${pha['governorate'] ?? 'مصر'} - ${pha['address_text'] ?? 'الشارع الرئيسي'} • 📞 ${profile['phone'] ?? 'بدون هاتف'}',
                                         style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textSecondary),
                                       ),
-                                      Text(
-                                        '📦 عدد الأصناف والمنتجات: ${products.length} صنف | 📞 هاتف الصيدلية: ${profile['phone'] ?? 'غير متوفر'}',
-                                        style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.primaryDark, fontWeight: FontWeight.w600),
-                                      ),
                                     ],
                                   ),
                                 ),
 
-                                // Rating
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: Colors.amber.withValues(alpha: 0.12),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Row(
+                                // Products Count
+                                Expanded(
+                                  flex: 2,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      const Icon(Icons.star_rounded, color: Colors.amber, size: 16),
-                                      const SizedBox(width: 4),
+                                      Text('كتالوج الأدوية:', style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textSecondary)),
+                                      Text('${products.length} صنف مسجل', style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold, color: AdminColors.textPrimary)),
+                                    ],
+                                  ),
+                                ),
+
+                                // Delivery Status
+                                Expanded(
+                                  flex: 2,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('خدمة التوصيل:', style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textSecondary)),
                                       Text(
-                                        '${pha['rating_avg'] ?? 4.8}',
-                                        style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.amber.shade900),
-                                      ),
-                                      Text(
-                                        ' (${pha['rating_count'] ?? 0})',
-                                        style: GoogleFonts.cairo(fontSize: 10.5, color: AdminColors.textSecondary),
+                                        pha['has_delivery'] == true ? 'دليفري متوفر 🛵' : 'استلام مباشر',
+                                        style: GoogleFonts.cairo(
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.bold,
+                                          color: pha['has_delivery'] == true ? AdminColors.success : AdminColors.textSecondary,
+                                        ),
                                       ),
                                     ],
                                   ),
                                 ),
-                                const SizedBox(width: 14),
 
-                                // Inspect Catalog Button
-                                ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AdminColors.primaryDark,
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                  ),
-                                  icon: const Icon(Icons.inventory_2_rounded, size: 16),
-                                  label: Text('فحص الأدوية (${products.length})', style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold)),
-                                  onPressed: () => _inspectProductsModal(pha),
-                                ),
-                                const SizedBox(width: 8),
-
-                                // Toggle Status Button
-                                IconButton(
-                                  tooltip: isApproved ? 'تجميد الصيدلية' : 'تفعيل الصيدلية',
-                                  icon: Icon(
-                                    isApproved ? Icons.pause_circle_outline_rounded : Icons.play_circle_outline_rounded,
-                                    color: isApproved ? AdminColors.warning : AdminColors.success,
-                                    size: 22,
-                                  ),
-                                  onPressed: () => _togglePharmacyStatus(pha['id'], isApproved),
+                                // Actions
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.inventory_2_outlined, color: AdminColors.primaryDark, size: 20),
+                                      tooltip: 'فحص كتالوج المنتجات والأدوية',
+                                      onPressed: () => _inspectProductsModal(pha),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    IconButton(
+                                      icon: Icon(
+                                        isApproved ? Icons.pause_circle_outline_rounded : Icons.play_circle_outline_rounded,
+                                        color: isApproved ? AdminColors.warning : AdminColors.success,
+                                        size: 22,
+                                      ),
+                                      tooltip: isApproved ? 'تجميد الصيدلية' : 'تفعيل الصيدلية',
+                                      onPressed: () => _togglePharmacyStatus(pha['id'], isApproved),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),

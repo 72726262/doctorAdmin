@@ -48,7 +48,6 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
           name,
           governorate,
           address_text,
-          consultation_fee,
           max_daily_capacity,
           is_queue_active
         )
@@ -67,13 +66,22 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
 
   Future<void> _toggleDoctorApproval(String doctorId, bool currentStatus) async {
     try {
+      await _client.rpc('admin_toggle_entity_approval', params: {
+        'p_id': doctorId,
+        'p_is_approved': !currentStatus,
+      });
+
       await _client.from('profiles').update({'is_approved': !currentStatus}).eq('id', doctorId);
-      _fetchDoctors();
+      await _client.from('doctors').update({
+        'subscription_status': !currentStatus ? 'ACTIVE' : 'SUSPENDED'
+      }).eq('id', doctorId);
+
+      await _fetchDoctors();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(!currentStatus ? '🟢 تم تفعيل واعتماد حساب الطبيب بنجاح' : '⏸️ تم تجميد حساب الطبيب مؤقتاً'),
+            content: Text(!currentStatus ? '🟢 تم تفعيل واعتماد حساب الطبيب بنجاح' : '⏸️ تم تجميد وإيقاف حساب الطبيب بنجاح'),
             backgroundColor: !currentStatus ? AdminColors.success : AdminColors.warning,
           ),
         );
@@ -93,7 +101,9 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
         'subscription_expires_at': newExpiry,
       }).eq('id', doctorId);
 
-      _fetchDoctors();
+      await _client.from('profiles').update({'is_approved': true}).eq('id', doctorId);
+
+      await _fetchDoctors();
 
       if (mounted) {
         Navigator.pop(context);
@@ -114,7 +124,7 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
   void _showDoctorDetailsModal(Map<String, dynamic> doc) {
     final profile = doc['profiles'] as Map<String, dynamic>? ?? {};
     final branches = (doc['branches'] as List?) ?? [];
-    final isApproved = profile['is_approved'] as bool? ?? false;
+    final isApproved = (profile['is_approved'] == true) && (doc['subscription_status'] != 'SUSPENDED' && doc['subscription_status'] != 'FROZEN');
 
     showDialog(
       context: context,
@@ -160,7 +170,7 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(
-                                  isApproved ? 'معتمد 🟢' : 'مجمد 🔴',
+                                  isApproved ? 'معتمد 🟢' : 'مجمد / موقوف 🔴',
                                   style: GoogleFonts.cairo(
                                     fontSize: 11,
                                     color: isApproved ? AdminColors.success : AdminColors.emergency,
@@ -187,8 +197,46 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                 const Divider(),
                 const SizedBox(height: 12),
 
+                // Subscription Details
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AdminColors.backgroundCanvas,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AdminColors.cardBorder),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('حالة اشتراك الطبيب في المنظومة:', style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold)),
+                          Text('الباقة الشهرية (350 ج.م / شهر)', style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textSecondary)),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: doc['subscription_status'] == 'ACTIVE' ? AdminColors.accentMintLight : Colors.amber.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          doc['subscription_status'] == 'ACTIVE' ? 'اشتراك نشط ✅' : 'يحتاج تجديد ⏳',
+                          style: GoogleFonts.cairo(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.bold,
+                            color: doc['subscription_status'] == 'ACTIVE' ? AdminColors.primaryDark : Colors.amber.shade900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
                 // Bio
-                Text('النبذة التعريفية والخبرات:', style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold)),
+                Text('النبذة والخبرات:', style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
                 Text(
                   doc['bio'] != null && doc['bio'] != '' ? doc['bio'] : 'لا توجد نبذة مسجلة',
@@ -223,8 +271,8 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
-                                Text('الكشف: ${b['consultation_fee']} ج.م', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, color: AdminColors.primaryDark, fontSize: 12)),
-                                Text('السعة: ${b['max_daily_capacity']} كشف/يوم', style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textSecondary)),
+                                Text('السعة: ${b['max_daily_capacity'] ?? 30} كشف/يوم', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, color: AdminColors.primaryDark, fontSize: 12)),
+                                Text(b['is_queue_active'] == true ? 'الطابور نشط 🟢' : 'الطابور متوقف ⏸️', style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textSecondary)),
                               ],
                             ),
                           ],
@@ -299,7 +347,7 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
             ListTile(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               tileColor: AdminColors.backgroundCanvas,
-              title: Text('تمديد ربع سنوي (90 يوماً)', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13)),
+              title: Text('تمديد 3 أشهر (90 يوماً)', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13)),
               trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
               onTap: () => _extendSubscription(docId, 90),
             ),
@@ -307,7 +355,7 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
             ListTile(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               tileColor: AdminColors.backgroundCanvas,
-              title: Text('تمديد سنوي كامل (365 يوماً)', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13)),
+              title: Text('تمديد سنة كاملة (365 يوماً)', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13)),
               trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
               onTap: () => _extendSubscription(docId, 365),
             ),
@@ -324,7 +372,8 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
       final name = profile['full_name']?.toString() ?? '';
       final specialty = d['specialty']?.toString() ?? '';
       final gov = profile['governorate']?.toString() ?? '';
-      final isApproved = profile['is_approved'] as bool? ?? false;
+      final isApproved = (profile['is_approved'] == true) &&
+          (d['subscription_status'] != 'SUSPENDED' && d['subscription_status'] != 'FROZEN');
 
       final matchGov = _governorateFilter == 'الكل' || gov == _governorateFilter;
       final matchStatus = _statusFilter == 'الكل' ||
@@ -420,7 +469,7 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                   child: DropdownButton<String>(
                     value: _governorateFilter,
                     style: GoogleFonts.cairo(color: AdminColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
-                    items: ['الكل', 'القاهرة', 'الجيزة', 'الإسكندرية', 'الدقهلية', 'الغربية'].map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                    items: ['الكل', 'القاهرة', 'الجيزة', 'الإسكندرية', 'الدقهلية', 'الغربية', 'الشرقية', 'المنوفية', 'البحيرة'].map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
                     onChanged: (val) => setState(() => _governorateFilter = val ?? 'الكل'),
                   ),
                 ),
@@ -458,7 +507,8 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                           final doc = filtered[index];
                           final profile = doc['profiles'] as Map<String, dynamic>? ?? {};
                           final branches = (doc['branches'] as List?) ?? [];
-                          final isApproved = profile['is_approved'] as bool? ?? false;
+                          final isApproved = (profile['is_approved'] == true) &&
+                              (doc['subscription_status'] != 'SUSPENDED' && doc['subscription_status'] != 'FROZEN');
 
                           return Container(
                             padding: const EdgeInsets.all(16),
@@ -499,15 +549,15 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                                           ),
                                           const SizedBox(width: 8),
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                             decoration: BoxDecoration(
                                               color: isApproved ? AdminColors.accentMintLight : Colors.red.withValues(alpha: 0.1),
                                               borderRadius: BorderRadius.circular(6),
                                             ),
                                             child: Text(
-                                              isApproved ? 'معتمد 🟢' : 'مجمد 🔴',
+                                              isApproved ? 'معتمد 🟢' : 'مجمد / موقوف 🔴',
                                               style: GoogleFonts.cairo(
-                                                fontSize: 10.5,
+                                                fontSize: 11,
                                                 color: isApproved ? AdminColors.success : AdminColors.emergency,
                                                 fontWeight: FontWeight.bold,
                                               ),
@@ -515,64 +565,66 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                                           ),
                                         ],
                                       ),
+                                      const SizedBox(height: 2),
                                       Text(
-                                        doc['specialty'] ?? 'تخصص عام',
-                                        style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.accentCyan, fontWeight: FontWeight.w600),
-                                      ),
-                                      Text(
-                                        '📞 ${profile['phone'] ?? ''} | 📍 ${profile['governorate'] ?? ''} (${branches.length} فروع عيادات)',
-                                        style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textSecondary),
+                                        '${doc['specialty'] ?? 'تخصص عام'} • 📍 ${profile['governorate'] ?? 'مصر'} • 📞 ${profile['phone'] ?? 'بدون هاتف'}',
+                                        style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textSecondary),
                                       ),
                                     ],
                                   ),
                                 ),
 
-                                // Rating Badge
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: Colors.amber.withValues(alpha: 0.12),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Row(
+                                // Branches Count
+                                Expanded(
+                                  flex: 2,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      const Icon(Icons.star_rounded, color: Colors.amber, size: 16),
-                                      const SizedBox(width: 4),
+                                      Text('فروع العيادة:', style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textSecondary)),
+                                      Text('${branches.length} فروع مسجلة', style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold, color: AdminColors.textPrimary)),
+                                    ],
+                                  ),
+                                ),
+
+                                // Subscription Status
+                                Expanded(
+                                  flex: 2,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('اشتراك المنظومة:', style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textSecondary)),
                                       Text(
-                                        '${doc['rating_avg'] ?? 5.0}',
-                                        style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.amber.shade900),
-                                      ),
-                                      Text(
-                                        ' (${doc['rating_count'] ?? 0})',
-                                        style: GoogleFonts.cairo(fontSize: 10.5, color: AdminColors.textSecondary),
+                                        doc['subscription_status'] == 'ACTIVE' ? 'نشط (350 ج.م)' : 'يحتاج تجديد',
+                                        style: GoogleFonts.cairo(
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.bold,
+                                          color: doc['subscription_status'] == 'ACTIVE' ? AdminColors.success : AdminColors.warning,
+                                        ),
                                       ),
                                     ],
                                   ),
                                 ),
-                                const SizedBox(width: 14),
 
-                                // Details Button
-                                OutlinedButton.icon(
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: AdminColors.primaryDark,
-                                    side: const BorderSide(color: AdminColors.cardBorderMint),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                  ),
-                                  icon: const Icon(Icons.visibility_rounded, size: 16),
-                                  label: Text('فحص وتحكم', style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold)),
-                                  onPressed: () => _showDoctorDetailsModal(doc),
-                                ),
-                                const SizedBox(width: 8),
-
-                                // Quick Toggle Button
-                                IconButton(
-                                  tooltip: isApproved ? 'تجميد حساب الطبيب' : 'تفعيل حساب الطبيب',
-                                  icon: Icon(
-                                    isApproved ? Icons.pause_circle_outline_rounded : Icons.play_circle_outline_rounded,
-                                    color: isApproved ? AdminColors.warning : AdminColors.success,
-                                    size: 22,
-                                  ),
-                                  onPressed: () => _toggleDoctorApproval(doc['id'], isApproved),
+                                // Actions
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.visibility_rounded, color: AdminColors.primaryDark, size: 20),
+                                      tooltip: 'عرض الملف الكامل وتمديد الاشتراك',
+                                      onPressed: () => _showDoctorDetailsModal(doc),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    IconButton(
+                                      icon: Icon(
+                                        isApproved ? Icons.pause_circle_outline_rounded : Icons.play_circle_outline_rounded,
+                                        color: isApproved ? AdminColors.warning : AdminColors.success,
+                                        size: 22,
+                                      ),
+                                      tooltip: isApproved ? 'تجميد الحساب' : 'تفعيل الحساب',
+                                      onPressed: () => _toggleDoctorApproval(doc['id'], isApproved),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),

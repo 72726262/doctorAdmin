@@ -62,11 +62,19 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
       // 1. Update request status to APPROVED
       await _client.from('subscription_requests').update({'status': 'APPROVED'}).eq('id', reqId);
 
-      // 2. Extend doctor subscription 30 days
+      // 2. Extend doctor and pharmacy subscriptions 30 days
       final expiresAt = DateTime.now().add(const Duration(days: 30)).toIso8601String();
       await _client.from('doctors').update({
         'subscription_status': 'ACTIVE',
         'subscription_expires_at': expiresAt,
+      }).eq('id', userId);
+
+      await _client.from('pharmacies').update({
+        'subscription_status': 'ACTIVE',
+      }).eq('id', userId);
+
+      await _client.from('profiles').update({
+        'is_approved': true,
       }).eq('id', userId);
 
       _fetchRequests();
