@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:doctor_admin/core/app_colors.dart';
 import 'package:doctor_admin/core/supabase_config.dart';
 
@@ -14,6 +15,7 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
   bool _isLoading = true;
   List<Map<String, dynamic>> _doctors = [];
   String _searchQuery = '';
+  String _governorateFilter = 'الكل';
   String _statusFilter = 'الكل';
 
   @override
@@ -27,17 +29,30 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
     try {
       final res = await _client.from('doctors').select('''
         id,
-        name,
         specialty,
         bio,
-        is_verified,
+        rating_avg,
+        rating_count,
+        subscription_status,
+        subscription_expires_at,
+        profiles (
+          id,
+          full_name,
+          phone,
+          governorate,
+          avatar_url,
+          is_approved
+        ),
         branches (
           id,
           name,
           governorate,
-          max_daily_patients
+          address_text,
+          consultation_fee,
+          max_daily_capacity,
+          is_queue_active
         )
-      ''');
+      ''').order('rating_avg', ascending: false);
 
       if (mounted) {
         setState(() {
@@ -46,106 +61,258 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
         });
       }
     } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _toggleDoctorApproval(String doctorId, bool currentStatus) async {
+    try {
+      await _client.from('profiles').update({'is_approved': !currentStatus}).eq('id', doctorId);
+      _fetchDoctors();
+
       if (mounted) {
-        setState(() {
-          _doctors = [
-            {
-              'id': 'd1',
-              'name': 'د. خالد عبد الرحمن',
-              'specialty': 'استشاري جراحة العظام',
-              'is_verified': true,
-              'bio': 'عضو الجمعية المصرية لجراحة العظام والمفاصل',
-              'branches': [
-                {'name': 'الفرع الرئيسي - مصر الجديدة', 'governorate': 'القاهرة', 'max_daily_patients': 40}
-              ]
-            },
-            {
-              'id': 'd2',
-              'name': 'د. منى عبد العزيز',
-              'specialty': 'أخصائي أمراض الباطنة والسكر',
-              'is_verified': true,
-              'bio': 'دبلوم السكر والغدد الصماء - جامعة عين شمس',
-              'branches': [
-                {'name': 'فرع الدقي', 'governorate': 'الجيزة', 'max_daily_patients': 30}
-              ]
-            },
-            {
-              'id': 'd3',
-              'name': 'د. سامح فوزي',
-              'specialty': 'استشاري أمراض القلب والقسطرة',
-              'is_verified': false,
-              'bio': 'معهد القلب القومي',
-              'branches': [
-                {'name': 'فرع سموحة', 'governorate': 'الإسكندرية', 'max_daily_patients': 25}
-              ]
-            },
-          ];
-          _isLoading = false;
-        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(!currentStatus ? '🟢 تم تفعيل واعتماد حساب الطبيب بنجاح' : '⏸️ تم تجميد حساب الطبيب مؤقتاً'),
+            backgroundColor: !currentStatus ? AdminColors.success : AdminColors.warning,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خطأ: $e'), backgroundColor: AdminColors.emergency));
       }
     }
   }
 
-  void _inspectDoctorLicense(Map<String, dynamic> doctor) {
+  Future<void> _extendSubscription(String doctorId, int days) async {
+    try {
+      final newExpiry = DateTime.now().add(Duration(days: days)).toIso8601String();
+      await _client.from('doctors').update({
+        'subscription_status': 'ACTIVE',
+        'subscription_expires_at': newExpiry,
+      }).eq('id', doctorId);
+
+      _fetchDoctors();
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('🎉 تم تمديد اشتراك الطبيب لـ $days يوماً بنجاح!'),
+            backgroundColor: AdminColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خطأ: $e'), backgroundColor: AdminColors.emergency));
+      }
+    }
+  }
+
+  void _showDoctorDetailsModal(Map<String, dynamic> doc) {
+    final profile = doc['profiles'] as Map<String, dynamic>? ?? {};
+    final branches = (doc['branches'] as List?) ?? [];
+    final isApproved = profile['is_approved'] as bool? ?? false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Container(
+          width: 600,
+          padding: const EdgeInsets.all(28),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Modal Header
+                Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 32,
+                      backgroundColor: AdminColors.primaryDark.withValues(alpha: 0.1),
+                      backgroundImage: (profile['avatar_url'] != null && profile['avatar_url'] != '')
+                          ? NetworkImage(profile['avatar_url'])
+                          : null,
+                      child: (profile['avatar_url'] == null || profile['avatar_url'] == '')
+                          ? const Icon(Icons.person, color: AdminColors.primaryDark, size: 30)
+                          : null,
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                profile['full_name'] ?? 'طبيب المنظومة',
+                                style: GoogleFonts.cairo(fontSize: 18, fontWeight: FontWeight.w900),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: isApproved ? AdminColors.accentMintLight : Colors.red.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  isApproved ? 'معتمد 🟢' : 'مجمد 🔴',
+                                  style: GoogleFonts.cairo(
+                                    fontSize: 11,
+                                    color: isApproved ? AdminColors.success : AdminColors.emergency,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            doc['specialty'] ?? 'تخصص عام',
+                            style: GoogleFonts.cairo(color: AdminColors.accentCyan, fontSize: 13, fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            '📞 ${profile['phone'] ?? 'غير متوفر'} | 📍 ${profile['governorate'] ?? 'مصر'}',
+                            style: GoogleFonts.cairo(color: AdminColors.textSecondary, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                const Divider(),
+                const SizedBox(height: 12),
+
+                // Bio
+                Text('النبذة التعريفية والخبرات:', style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Text(
+                  doc['bio'] != null && doc['bio'] != '' ? doc['bio'] : 'لا توجد نبذة مسجلة',
+                  style: GoogleFonts.cairo(fontSize: 12.5, color: AdminColors.textSecondary),
+                ),
+                const SizedBox(height: 18),
+
+                // Branches List
+                Text('فروع العيادات المسجلة (${branches.length} فروع):', style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                if (branches.isEmpty)
+                  Text('لا توجد فروع مسجلة لهذا الطبيب حالياً', style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textSecondary))
+                else
+                  ...branches.map((b) => Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AdminColors.backgroundCanvas,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AdminColors.cardBorder),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(b['name'] ?? 'الفرع', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13)),
+                                Text('📍 ${b['governorate']} - ${b['address_text']}', style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textSecondary)),
+                              ],
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text('الكشف: ${b['consultation_fee']} ج.م', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, color: AdminColors.primaryDark, fontSize: 12)),
+                                Text('السعة: ${b['max_daily_capacity']} كشف/يوم', style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textSecondary)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      )),
+
+                const SizedBox(height: 24),
+
+                // Actions Bar
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: Text('إغلاق', style: GoogleFonts.cairo(color: AdminColors.textSecondary)),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AdminColors.accentCyan,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      icon: const Icon(Icons.add_card_rounded, size: 18),
+                      label: Text('تمديد الاشتراك', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _showExtendSubscriptionDialog(doc['id'], profile['full_name'] ?? 'الطبيب');
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isApproved ? AdminColors.warning : AdminColors.success,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      icon: Icon(isApproved ? Icons.pause_circle_rounded : Icons.check_circle_rounded, size: 18),
+                      label: Text(isApproved ? 'تجميد الحساب' : 'تفعيل الحساب', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _toggleDoctorApproval(doc['id'], isApproved);
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showExtendSubscriptionDialog(String docId, String doctorName) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
+        title: Text('تمديد اشتراك: $doctorName', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 16)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.verified_user_rounded, color: AdminColors.primaryDark, size: 24),
-            const SizedBox(width: 8),
-            Text('فحص تراخيص: ${doctor['name']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ListTile(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              tileColor: AdminColors.backgroundCanvas,
+              title: Text('تمديد شهر (30 يوماً)', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13)),
+              trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+              onTap: () => _extendSubscription(docId, 30),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              tileColor: AdminColors.backgroundCanvas,
+              title: Text('تمديد ربع سنوي (90 يوماً)', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13)),
+              trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+              onTap: () => _extendSubscription(docId, 90),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              tileColor: AdminColors.backgroundCanvas,
+              title: Text('تمديد سنوي كامل (365 يوماً)', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13)),
+              trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+              onTap: () => _extendSubscription(docId, 365),
+            ),
           ],
         ),
-        content: SizedBox(
-          width: 500,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('التخصص: ${doctor['specialty']}', style: const TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              Text('النبذة المهنية: ${doctor['bio'] ?? "غير محددة"}', style: const TextStyle(fontSize: 12.5, color: AdminColors.textSecondary)),
-              const SizedBox(height: 16),
-              const Text('صورة ترخيص مزاولة المهنة / كارنيه النقابة:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              Container(
-                height: 180,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.badge_rounded, size: 48, color: AdminColors.primaryDark),
-                      SizedBox(height: 6),
-                      Text('ترخيص نقابة الأطباء - ساري المفعول', style: TextStyle(fontSize: 12, color: AdminColors.textPrimary, fontWeight: FontWeight.bold)),
-                      Text('تم الفحص والتحقق الرقمي', style: TextStyle(fontSize: 10.5, color: AdminColors.success)),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إغلاق')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AdminColors.success),
-            onPressed: () {
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('✅ تم تأكيد اعتماد تراخيص الطبيب بنجاح'), backgroundColor: AdminColors.success),
-              );
-            },
-            child: const Text('تأكيد الاعتماد 🟢', style: TextStyle(color: Colors.white)),
-          ),
-        ],
       ),
     );
   }
@@ -153,11 +320,23 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
   @override
   Widget build(BuildContext context) {
     final filtered = _doctors.where((d) {
-      final matchesSearch = (d['name'] as String).toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          (d['specialty'] as String).toLowerCase().contains(_searchQuery.toLowerCase());
-      if (_statusFilter == 'معتمد') return matchesSearch && (d['is_verified'] == true);
-      if (_statusFilter == 'قيد الانتظار') return matchesSearch && (d['is_verified'] == false);
-      return matchesSearch;
+      final profile = d['profiles'] as Map<String, dynamic>? ?? {};
+      final name = profile['full_name']?.toString() ?? '';
+      final specialty = d['specialty']?.toString() ?? '';
+      final gov = profile['governorate']?.toString() ?? '';
+      final isApproved = profile['is_approved'] as bool? ?? false;
+
+      final matchGov = _governorateFilter == 'الكل' || gov == _governorateFilter;
+      final matchStatus = _statusFilter == 'الكل' ||
+          (_statusFilter == 'معتمد' && isApproved) ||
+          (_statusFilter == 'مجمد' && !isApproved);
+
+      final matchSearch = _searchQuery.isEmpty ||
+          name.contains(_searchQuery) ||
+          specialty.contains(_searchQuery) ||
+          gov.contains(_searchQuery);
+
+      return matchGov && matchStatus && matchSearch;
     }).toList();
 
     return Padding(
@@ -183,16 +362,16 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                         child: const Icon(Icons.medical_services_rounded, color: AdminColors.primaryDark, size: 24),
                       ),
                       const SizedBox(width: 10),
-                      const Text(
+                      Text(
                         'مركز حوكمة وإدارة الأطباء والعيادات',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AdminColors.textPrimary),
+                        style: GoogleFonts.cairo(fontSize: 18, fontWeight: FontWeight.w900, color: AdminColors.textPrimary),
                       ),
                     ],
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'إدارة ملفات الأطباء، فحص التراخيص، التحكم في السعات الاستيعابية، ومتابعة الفروع',
-                    style: TextStyle(fontSize: 12, color: AdminColors.textSecondary),
+                  Text(
+                    'التحكم الكامل في الأطباء المسجلين، فحص الفروع، تمديد الاشتراكات، والاعتماد والتجميد الفوري',
+                    style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textSecondary),
                   ),
                 ],
               ),
@@ -200,87 +379,113 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AdminColors.primaryDark,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
-                onPressed: _fetchDoctors,
                 icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: const Text('تحديث القائمة', style: TextStyle(fontWeight: FontWeight.bold)),
+                label: Text('تحديث القائمة', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+                onPressed: _fetchDoctors,
               ),
             ],
           ),
 
           const SizedBox(height: 20),
 
-          // Filters & Search Bar
+          // Filters Bar
           Row(
             children: [
+              // Search
               Expanded(
                 child: TextField(
-                  onChanged: (val) => setState(() => _searchQuery = val),
+                  style: GoogleFonts.cairo(fontSize: 13),
+                  onChanged: (val) => setState(() => _searchQuery = val.trim()),
                   decoration: InputDecoration(
-                    hintText: 'ابحث باسم الطبيب، التخصص، أو المحافظة...',
-                    prefixIcon: const Icon(Icons.search_rounded, color: AdminColors.primaryDark),
+                    hintText: 'بحث باسم الطبيب، التخصص، أو المحافظة...',
+                    hintStyle: GoogleFonts.cairo(fontSize: 13, color: AdminColors.textSecondary),
+                    prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AdminColors.textSecondary),
                     filled: true,
                     fillColor: AdminColors.surfaceWhite,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AdminColors.cardBorderMint)),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AdminColors.cardBorderMint)),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AdminColors.cardBorder)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AdminColors.cardBorder)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   ),
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 12),
+
+              // Governorate Filter
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14),
-                decoration: BoxDecoration(
-                  color: AdminColors.surfaceWhite,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AdminColors.cardBorderMint),
+                decoration: BoxDecoration(color: AdminColors.surfaceWhite, borderRadius: BorderRadius.circular(12), border: Border.all(color: AdminColors.cardBorder)),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _governorateFilter,
+                    style: GoogleFonts.cairo(color: AdminColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
+                    items: ['الكل', 'القاهرة', 'الجيزة', 'الإسكندرية', 'الدقهلية', 'الغربية'].map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                    onChanged: (val) => setState(() => _governorateFilter = val ?? 'الكل'),
+                  ),
                 ),
-                child: DropdownButton<String>(
-                  value: _statusFilter,
-                  underline: const SizedBox(),
-                  items: ['الكل', 'معتمد', 'قيد الانتظار'].map((st) {
-                    return DropdownMenuItem(value: st, child: Text(st, style: const TextStyle(fontSize: 13)));
-                  }).toList(),
-                  onChanged: (val) {
-                    if (val != null) setState(() => _statusFilter = val);
-                  },
+              ),
+              const SizedBox(width: 12),
+
+              // Status Filter
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(color: AdminColors.surfaceWhite, borderRadius: BorderRadius.circular(12), border: Border.all(color: AdminColors.cardBorder)),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _statusFilter,
+                    style: GoogleFonts.cairo(color: AdminColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
+                    items: ['الكل', 'معتمد', 'مجمد'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                    onChanged: (val) => setState(() => _statusFilter = val ?? 'الكل'),
+                  ),
                 ),
               ),
             ],
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
-          // Doctors List
+          // Doctors Table / List
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator(color: AdminColors.primaryDark))
                 : filtered.isEmpty
-                    ? const Center(child: Text('لا يوجد أطباء مطابقين للبحث'))
-                    : ListView.builder(
+                    ? Center(child: Text('لا يوجد أطباء مطابقين للبحث', style: GoogleFonts.cairo(color: AdminColors.textSecondary)))
+                    : ListView.separated(
                         itemCount: filtered.length,
+                        separatorBuilder: (context, index) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           final doc = filtered[index];
-                          final isVerified = doc['is_verified'] == true;
+                          final profile = doc['profiles'] as Map<String, dynamic>? ?? {};
                           final branches = (doc['branches'] as List?) ?? [];
+                          final isApproved = profile['is_approved'] as bool? ?? false;
 
                           return Container(
-                            margin: const EdgeInsets.only(bottom: 12),
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
                               color: AdminColors.surfaceWhite,
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(color: AdminColors.cardBorderMint),
+                              boxShadow: [
+                                BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
+                              ],
                             ),
                             child: Row(
                               children: [
+                                // Avatar
                                 CircleAvatar(
                                   radius: 24,
                                   backgroundColor: AdminColors.primaryDark.withValues(alpha: 0.1),
-                                  child: const Icon(Icons.person_rounded, color: AdminColors.primaryDark, size: 26),
+                                  backgroundImage: (profile['avatar_url'] != null && profile['avatar_url'] != '')
+                                      ? NetworkImage(profile['avatar_url'])
+                                      : null,
+                                  child: (profile['avatar_url'] == null || profile['avatar_url'] == '')
+                                      ? const Icon(Icons.person, color: AdminColors.primaryDark)
+                                      : null,
                                 ),
-                                const SizedBox(width: 16),
+                                const SizedBox(width: 14),
+
+                                // Info
                                 Expanded(
                                   flex: 3,
                                   child: Column(
@@ -288,44 +493,86 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                                     children: [
                                       Row(
                                         children: [
-                                          Text(doc['name'], style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14.5)),
+                                          Text(
+                                            profile['full_name'] ?? 'طبيب المنظومة',
+                                            style: GoogleFonts.cairo(fontSize: 14.5, fontWeight: FontWeight.w800, color: AdminColors.textPrimary),
+                                          ),
                                           const SizedBox(width: 8),
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                             decoration: BoxDecoration(
-                                              color: (isVerified ? AdminColors.success : AdminColors.warning).withValues(alpha: 0.12),
+                                              color: isApproved ? AdminColors.accentMintLight : Colors.red.withValues(alpha: 0.1),
                                               borderRadius: BorderRadius.circular(6),
                                             ),
                                             child: Text(
-                                              isVerified ? 'معتمد 🟢' : 'قيد المراجعة 🟡',
-                                              style: TextStyle(
-                                                fontSize: 11,
+                                              isApproved ? 'معتمد 🟢' : 'مجمد 🔴',
+                                              style: GoogleFonts.cairo(
+                                                fontSize: 10.5,
+                                                color: isApproved ? AdminColors.success : AdminColors.emergency,
                                                 fontWeight: FontWeight.bold,
-                                                color: isVerified ? AdminColors.success : AdminColors.warning,
                                               ),
                                             ),
                                           ),
                                         ],
                                       ),
-                                      const SizedBox(height: 4),
-                                      Text(doc['specialty'], style: const TextStyle(fontSize: 12, color: AdminColors.textSecondary)),
-                                      const SizedBox(height: 4),
                                       Text(
-                                        'عدد الفروع: ${branches.length} ${branches.isNotEmpty ? "(${branches.first['governorate']})" : ""}',
-                                        style: const TextStyle(fontSize: 11, color: AdminColors.textMuted),
+                                        doc['specialty'] ?? 'تخصص عام',
+                                        style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.accentCyan, fontWeight: FontWeight.w600),
+                                      ),
+                                      Text(
+                                        '📞 ${profile['phone'] ?? ''} | 📍 ${profile['governorate'] ?? ''} (${branches.length} فروع عيادات)',
+                                        style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textSecondary),
                                       ),
                                     ],
                                   ),
                                 ),
+
+                                // Rating Badge
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.amber.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.star_rounded, color: Colors.amber, size: 16),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        '${doc['rating_avg'] ?? 5.0}',
+                                        style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.amber.shade900),
+                                      ),
+                                      Text(
+                                        ' (${doc['rating_count'] ?? 0})',
+                                        style: GoogleFonts.cairo(fontSize: 10.5, color: AdminColors.textSecondary),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+
+                                // Details Button
                                 OutlinedButton.icon(
                                   style: OutlinedButton.styleFrom(
                                     foregroundColor: AdminColors.primaryDark,
-                                    side: const BorderSide(color: AdminColors.primaryDark),
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    side: const BorderSide(color: AdminColors.cardBorderMint),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                   ),
-                                  onPressed: () => _inspectDoctorLicense(doc),
-                                  icon: const Icon(Icons.badge_outlined, size: 16),
-                                  label: const Text('فحص التراخيص', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                  icon: const Icon(Icons.visibility_rounded, size: 16),
+                                  label: Text('فحص وتحكم', style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold)),
+                                  onPressed: () => _showDoctorDetailsModal(doc),
+                                ),
+                                const SizedBox(width: 8),
+
+                                // Quick Toggle Button
+                                IconButton(
+                                  tooltip: isApproved ? 'تجميد حساب الطبيب' : 'تفعيل حساب الطبيب',
+                                  icon: Icon(
+                                    isApproved ? Icons.pause_circle_outline_rounded : Icons.play_circle_outline_rounded,
+                                    color: isApproved ? AdminColors.warning : AdminColors.success,
+                                    size: 22,
+                                  ),
+                                  onPressed: () => _toggleDoctorApproval(doc['id'], isApproved),
                                 ),
                               ],
                             ),

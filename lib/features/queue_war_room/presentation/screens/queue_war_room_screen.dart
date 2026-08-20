@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:doctor_admin/core/app_colors.dart';
 import 'package:doctor_admin/core/supabase_config.dart';
 
@@ -12,8 +13,9 @@ class QueueWarRoomScreen extends StatefulWidget {
 class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
   final _client = AdminSupabaseConfig.client;
   bool _isLoading = true;
-  List<Map<String, dynamic>> _activeClinics = [];
+  List<Map<String, dynamic>> _liveBranches = [];
   String _selectedGovernorate = 'الكل';
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -24,140 +26,145 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
   Future<void> _fetchLiveQueues() async {
     setState(() => _isLoading = true);
     try {
-      final branches = await _client.from('branches').select('''
+      // 1. Fetch all branches with doctor and profile details
+      final branchesRes = await _client.from('branches').select('''
         id,
+        doctor_id,
         name,
-        address,
         governorate,
-        current_ticket_number,
-        is_active,
-        doctors:doctor_id (
+        address_text,
+        max_daily_capacity,
+        booking_window_days,
+        is_queue_active,
+        is_booking_stopped_today,
+        doctors (
           id,
-          name,
-          specialty
+          specialty,
+          rating_avg,
+          rating_count,
+          subscription_status,
+          profiles (
+            full_name,
+            phone,
+            avatar_url
+          )
         )
-      ''').eq('is_active', true);
+      ''').order('name', ascending: true);
 
-      final List<Map<String, dynamic>> liveList = [];
-      for (final b in (branches as List)) {
-        // Fetch waiting tickets count for this branch
-        final waiting = await _client
-            .from('tickets')
-            .select('id')
-            .eq('branch_id', b['id'])
-            .eq('status', 'WAITING');
+      final todayStr = DateTime.now().toIso8601String().split('T')[0];
 
-        liveList.add({
-          'id': b['id'],
+      // 2. Fetch today's tickets for queue stats
+      final ticketsRes = await _client
+          .from('tickets')
+          .select('id, branch_id, ticket_number, status')
+          .eq('booking_date', todayStr);
+
+      final ticketsList = List<Map<String, dynamic>>.from(ticketsRes as List);
+
+      final List<Map<String, dynamic>> enriched = [];
+
+      for (final b in (branchesRes as List)) {
+        final branchId = b['id'];
+        final branchTickets = ticketsList.where((t) => t['branch_id'] == branchId).toList();
+
+        final waitingTickets = branchTickets.where((t) => t['status'] == 'WAITING' || t['status'] == 'BOOKED').toList();
+        final inSessionTickets = branchTickets.where((t) => t['status'] == 'IN_SESSION' || t['status'] == 'CALLED').toList();
+        final completedTickets = branchTickets.where((t) => t['status'] == 'COMPLETED').toList();
+
+        int currentNumber = 0;
+        if (inSessionTickets.isNotEmpty) {
+          currentNumber = inSessionTickets.last['ticket_number'] as int? ?? 0;
+        } else if (completedTickets.isNotEmpty) {
+          currentNumber = completedTickets.last['ticket_number'] as int? ?? 0;
+        }
+
+        final docData = b['doctors'] as Map<String, dynamic>?;
+        final profileData = docData?['profiles'] as Map<String, dynamic>?;
+
+        enriched.add({
+          'id': branchId,
+          'doctor_id': b['doctor_id'],
           'branch_name': b['name'] ?? 'الفرع الرئيسي',
           'governorate': b['governorate'] ?? 'القاهرة',
-          'doctor_name': (b['doctors'] as Map?)?['name'] ?? 'د. غير محدد',
-          'specialty': (b['doctors'] as Map?)?['specialty'] ?? 'طب عام',
-          'current_ticket': b['current_ticket_number'] ?? 0,
-          'waiting_count': (waiting as List).length,
-          'avg_time_mins': 7, // Live SLA estimate
-          'is_overcrowded': (waiting.length > 15),
+          'address_text': b['address_text'] ?? '',
+          'doctor_name': profileData?['full_name'] ?? 'طبيب المنظومة',
+          'doctor_phone': profileData?['phone'] ?? '',
+          'specialty': docData?['specialty'] ?? 'طب عام',
+          'avatar_url': profileData?['avatar_url'] ?? '',
+          'rating_avg': docData?['rating_avg'] ?? 4.9,
+          'is_queue_active': b['is_queue_active'] ?? false,
+          'is_booking_stopped_today': b['is_booking_stopped_today'] ?? false,
+          'max_daily_capacity': b['max_daily_capacity'] ?? 40,
+          'current_ticket': currentNumber,
+          'waiting_count': waitingTickets.length,
+          'completed_count': completedTickets.length,
+          'total_today': branchTickets.length,
+          'is_overcrowded': waitingTickets.length > 12,
         });
       }
 
       if (mounted) {
         setState(() {
-          _activeClinics = liveList;
+          _liveBranches = enriched;
           _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _activeClinics = [
-            {
-              'id': 'b1',
-              'branch_name': 'فرع الدقي - برج الأطباء',
-              'governorate': 'الجيزة',
-              'doctor_name': 'د. حازم المنشاوي',
-              'specialty': 'قلب وأوعية دموية',
-              'current_ticket': 14,
-              'waiting_count': 9,
-              'avg_time_mins': 9,
-              'is_overcrowded': false,
-            },
-            {
-              'id': 'b2',
-              'branch_name': 'فرع سموحة - مجمع العيادات',
-              'governorate': 'الإسكندرية',
-              'doctor_name': 'د. رانيا عبد الفتاح',
-              'specialty': 'أطفال وحديثي الولادة',
-              'current_ticket': 28,
-              'waiting_count': 18,
-              'avg_time_mins': 6,
-              'is_overcrowded': true,
-            },
-            {
-              'id': 'b3',
-              'branch_name': 'فرع مدينة نصر - شارع عباس العقاد',
-              'governorate': 'القاهرة',
-              'doctor_name': 'د. محمود الشناوي',
-              'specialty': 'عظام ومفاصل',
-              'current_ticket': 8,
-              'waiting_count': 4,
-              'avg_time_mins': 12,
-              'is_overcrowded': false,
-            }
-          ];
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
       }
     }
   }
 
-  void _handleEmergencyHalt(String branchId, String doctorName) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            const Icon(Icons.warning_amber_rounded, color: AdminColors.emergency, size: 28),
-            const SizedBox(width: 8),
-            Text('تجميد طارئ لعيادة $doctorName', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        content: const Text(
-          'سيتم إيقاف حجز التذاكر فوراً وتنبيه المرضى المنتظرين في الطابور عبر رسائل الواتساب. هل أنت متأكد؟',
-          style: TextStyle(fontSize: 13, height: 1.5),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AdminColors.emergency),
-            onPressed: () {
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('🚨 تم تجميد العيادة وإرسال إشعار اعتذار للمرضى بالواتساب'),
-                  backgroundColor: AdminColors.emergency,
-                ),
-              );
-            },
-            child: const Text('تأكيد التجميد الطارئ', style: TextStyle(color: Colors.white)),
+  Future<void> _toggleBranchQueue(String branchId, bool currentStatus) async {
+    try {
+      await _client
+          .from('branches')
+          .update({'is_queue_active': !currentStatus})
+          .eq('id', branchId);
+
+      _fetchLiveQueues();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(!currentStatus ? '🟢 تم فتح وتفعيل طابور العيادة' : '⏸️ تم إيقاف طابور العيادة مؤقتاً'),
+            backgroundColor: !currentStatus ? AdminColors.success : AdminColors.warning,
           ),
-        ],
-      ),
-    );
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('حدث خطأ: $e'), backgroundColor: AdminColors.emergency),
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final filteredClinics = _selectedGovernorate == 'الكل'
-        ? _activeClinics
-        : _activeClinics.where((c) => c['governorate'] == _selectedGovernorate).toList();
+    // Filter by governorate & search
+    final filtered = _liveBranches.where((b) {
+      final matchGov = _selectedGovernorate == 'الكل' || b['governorate'] == _selectedGovernorate;
+      final matchSearch = _searchQuery.isEmpty ||
+          b['branch_name'].toString().contains(_searchQuery) ||
+          b['doctor_name'].toString().contains(_searchQuery) ||
+          b['specialty'].toString().contains(_searchQuery);
+      return matchGov && matchSearch;
+    }).toList();
+
+    // Stats
+    final totalActiveQueues = _liveBranches.where((b) => b['is_queue_active'] == true).length;
+    final totalWaitingPatients = _liveBranches.fold<int>(0, (sum, b) => sum + (b['waiting_count'] as int));
+    final overcrowdedCount = _liveBranches.where((b) => b['is_overcrowded'] == true).length;
 
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header & Stats
+          // Header Bar with Live Badge & Refresh
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -169,42 +176,50 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: AdminColors.emergency.withValues(alpha: 0.12),
+                          color: AdminColors.emergency.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Icon(Icons.radar_rounded, color: AdminColors.emergency, size: 24),
                       ),
                       const SizedBox(width: 10),
-                      const Text(
-                        'غرفة العمليات ورادار الطوابير اللحظي (Queue War-Room)',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AdminColors.textPrimary),
+                      Text(
+                        'غرفة العمليات ورادار الطوابير اللحظي (Live War Room)',
+                        style: GoogleFonts.cairo(fontSize: 18, fontWeight: FontWeight.w900, color: AdminColors.textPrimary),
                       ),
                     ],
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'مراقبة سرعة الكشوفات ونسب الازدحام مع صلاحيات التدخل الإداري وتجميد الطوارئ',
-                    style: TextStyle(fontSize: 12, color: AdminColors.textSecondary),
+                  Text(
+                    'مراقبة فورية ومباشرة لكافة طوابير العيادات، التذاكر الحالية، وحالات التكدس في محافظات مصر',
+                    style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textSecondary),
                   ),
                 ],
               ),
               Row(
                 children: [
-                  DropdownButton<String>(
-                    value: _selectedGovernorate,
-                    underline: const SizedBox(),
-                    items: ['الكل', 'القاهرة', 'الجيزة', 'الإسكندرية', 'الدقهلية'].map((gov) {
-                      return DropdownMenuItem(value: gov, child: Text(gov, style: const TextStyle(fontSize: 13)));
-                    }).toList(),
-                    onChanged: (val) {
-                      if (val != null) setState(() => _selectedGovernorate = val);
-                    },
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AdminColors.accentMintLight,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: AdminColors.success.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.circle, color: AdminColors.success, size: 8),
+                        const SizedBox(width: 6),
+                        Text(
+                          'تحديث لحظي نشط 🟢',
+                          style: GoogleFonts.cairo(color: AdminColors.success, fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   IconButton(
-                    onPressed: _fetchLiveQueues,
+                    tooltip: 'تحديث البيانات الآن',
                     icon: const Icon(Icons.refresh_rounded, color: AdminColors.primaryDark),
-                    tooltip: 'تحديث حي',
+                    onPressed: _fetchLiveQueues,
                   ),
                 ],
               ),
@@ -213,82 +228,150 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
 
           const SizedBox(height: 20),
 
-          // Live Summary Metrics
+          // War Room KPI Cards
           Row(
             children: [
               Expanded(
-                child: _buildWarRoomMetric(
-                  'العيادات المفتوحة الآن',
-                  '${_activeClinics.length}',
+                child: _buildWarRoomKpi(
+                  'العيادات ذات الطوابير النشطة',
+                  '$totalActiveQueues عيادة',
                   Icons.storefront_rounded,
-                  AdminColors.success,
+                  AdminColors.primaryDark,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: _buildWarRoomMetric(
+                child: _buildWarRoomKpi(
                   'إجمالي المنتظرين في الطوابير',
-                  '${_activeClinics.fold<int>(0, (sum, c) => sum + (c['waiting_count'] as int))}',
+                  '$totalWaitingPatients مريض',
                   Icons.groups_rounded,
                   AdminColors.accentCyan,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: _buildWarRoomMetric(
-                  'العيادات ذات الازدحام المرتفع',
-                  '${_activeClinics.where((c) => c['is_overcrowded'] == true).length}',
+                child: _buildWarRoomKpi(
+                  'تنبيهات التكدس والازدحام',
+                  '$overcrowdedCount عيادة',
                   Icons.warning_amber_rounded,
-                  AdminColors.emergency,
+                  overcrowdedCount > 0 ? AdminColors.emergency : AdminColors.success,
                 ),
               ),
             ],
           ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
 
-          // Live Clinics Table / Cards
+          // Filters Bar
+          Row(
+            children: [
+              // Search Input
+              Expanded(
+                child: TextField(
+                  style: GoogleFonts.cairo(fontSize: 13),
+                  onChanged: (val) => setState(() => _searchQuery = val.trim()),
+                  decoration: InputDecoration(
+                    hintText: 'بحث باسم الطبيب، الفرع، أو التخصص...',
+                    hintStyle: GoogleFonts.cairo(fontSize: 13, color: AdminColors.textSecondary),
+                    prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AdminColors.textSecondary),
+                    filled: true,
+                    fillColor: AdminColors.surfaceWhite,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AdminColors.cardBorder),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AdminColors.cardBorder),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+
+              // Governorate Dropdown
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(
+                  color: AdminColors.surfaceWhite,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AdminColors.cardBorder),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedGovernorate,
+                    style: GoogleFonts.cairo(color: AdminColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
+                    items: ['الكل', 'القاهرة', 'الجيزة', 'الإسكندرية', 'الدقهلية', 'الغربية'].map((gov) {
+                      return DropdownMenuItem(value: gov, child: Text(gov));
+                    }).toList(),
+                    onChanged: (val) => setState(() => _selectedGovernorate = val ?? 'الكل'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // Live Branches Cards Grid / List
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator(color: AdminColors.primaryDark))
-                : filteredClinics.isEmpty
-                    ? const Center(child: Text('لا توجد عيادات نشطة في هذه المحافظة حالياً'))
-                    : ListView.builder(
-                        itemCount: filteredClinics.length,
+                : filtered.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.radar_rounded, size: 56, color: AdminColors.textSecondary),
+                            const SizedBox(height: 12),
+                            Text('لا توجد طوابير عيادات مطابقة للبحث', style: GoogleFonts.cairo(fontSize: 15, color: AdminColors.textSecondary)),
+                          ],
+                        ),
+                      )
+                    : ListView.separated(
+                        itemCount: filtered.length,
+                        separatorBuilder: (context, index) => const SizedBox(height: 12),
                         itemBuilder: (context, index) {
-                          final clinic = filteredClinics[index];
-                          final isOvercrowded = clinic['is_overcrowded'] == true;
+                          final branch = filtered[index];
+                          final isActive = branch['is_queue_active'] as bool;
+                          final isOvercrowded = branch['is_overcrowded'] as bool;
 
                           return Container(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            padding: const EdgeInsets.all(16),
+                            padding: const EdgeInsets.all(18),
                             decoration: BoxDecoration(
                               color: AdminColors.surfaceWhite,
-                              borderRadius: BorderRadius.circular(14),
+                              borderRadius: BorderRadius.circular(16),
                               border: Border.all(
-                                color: isOvercrowded ? AdminColors.emergency.withValues(alpha: 0.5) : AdminColors.cardBorderMint,
+                                color: isOvercrowded
+                                    ? AdminColors.emergency.withValues(alpha: 0.5)
+                                    : isActive
+                                        ? AdminColors.cardBorderMint
+                                        : AdminColors.cardBorder,
                                 width: isOvercrowded ? 1.5 : 1,
                               ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.03),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
                             ),
                             child: Row(
                               children: [
-                                // Clinic Status Indicator
-                                Container(
-                                  width: 48,
-                                  height: 48,
-                                  decoration: BoxDecoration(
-                                    color: (isOvercrowded ? AdminColors.emergency : AdminColors.primaryDark).withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Icon(
-                                    isOvercrowded ? Icons.crisis_alert_rounded : Icons.medical_information_rounded,
-                                    color: isOvercrowded ? AdminColors.emergency : AdminColors.primaryDark,
-                                    size: 26,
-                                  ),
+                                // Doctor Avatar / Status
+                                CircleAvatar(
+                                  radius: 26,
+                                  backgroundColor: AdminColors.primaryDark.withValues(alpha: 0.1),
+                                  backgroundImage: branch['avatar_url'] != '' ? NetworkImage(branch['avatar_url']) : null,
+                                  child: branch['avatar_url'] == ''
+                                      ? const Icon(Icons.person_rounded, color: AdminColors.primaryDark)
+                                      : null,
                                 ),
-                                const SizedBox(width: 16),
+                                const SizedBox(width: 14),
 
-                                // Details
+                                // Doctor & Branch Info
                                 Expanded(
                                   flex: 3,
                                   child: Column(
@@ -297,88 +380,112 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
                                       Row(
                                         children: [
                                           Text(
-                                            clinic['doctor_name'],
-                                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14.5),
+                                            branch['doctor_name'],
+                                            style: GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w800, color: AdminColors.textPrimary),
                                           ),
                                           const SizedBox(width: 8),
                                           Container(
                                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                             decoration: BoxDecoration(
-                                              color: AdminColors.accentMintLight,
-                                              borderRadius: BorderRadius.circular(6),
+                                              color: AdminColors.primaryDark.withValues(alpha: 0.08),
+                                              borderRadius: BorderRadius.circular(8),
                                             ),
                                             child: Text(
-                                              clinic['specialty'],
-                                              style: const TextStyle(fontSize: 11, color: AdminColors.primaryDark, fontWeight: FontWeight.bold),
+                                              branch['governorate'],
+                                              style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.primaryDark, fontWeight: FontWeight.bold),
                                             ),
                                           ),
                                         ],
                                       ),
-                                      const SizedBox(height: 4),
+                                      const SizedBox(height: 2),
                                       Text(
-                                        '${clinic['branch_name']} • ${clinic['governorate']}',
-                                        style: const TextStyle(fontSize: 12, color: AdminColors.textSecondary),
+                                        branch['specialty'],
+                                        style: GoogleFonts.cairo(fontSize: 12.5, color: AdminColors.accentCyan, fontWeight: FontWeight.w600),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        '📍 ${branch['branch_name']} - ${branch['address_text']}',
+                                        style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textSecondary),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
                                     ],
                                   ),
                                 ),
 
-                                // Live HUD Metrics
-                                Expanded(
-                                  flex: 2,
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                // Live Ticket Radar Box
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: isActive
+                                        ? AdminColors.primaryDark.withValues(alpha: 0.06)
+                                        : Colors.grey.withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Column(
                                     children: [
-                                      Column(
-                                        children: [
-                                          const Text('الدور الحالي', style: TextStyle(fontSize: 11, color: AdminColors.textMuted)),
-                                          Text(
-                                            '#${clinic['current_ticket']}',
-                                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AdminColors.primaryDark),
-                                          ),
-                                        ],
+                                      Text(
+                                        'الكشف الحالي',
+                                        style: GoogleFonts.cairo(fontSize: 10.5, color: AdminColors.textSecondary, fontWeight: FontWeight.bold),
                                       ),
-                                      Column(
-                                        children: [
-                                          const Text('المنتظرون', style: TextStyle(fontSize: 11, color: AdminColors.textMuted)),
-                                          Text(
-                                            '${clinic['waiting_count']} مريض',
-                                            style: TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w900,
-                                              color: isOvercrowded ? AdminColors.emergency : AdminColors.textPrimary,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      Column(
-                                        children: [
-                                          const Text('معدل الكشف', style: TextStyle(fontSize: 11, color: AdminColors.textMuted)),
-                                          Text(
-                                            '${clinic['avg_time_mins']} دقيقة',
-                                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AdminColors.textSecondary),
-                                          ),
-                                        ],
+                                      Text(
+                                        isActive ? '#${branch['current_ticket']}' : 'متوقف',
+                                        style: GoogleFonts.cairo(
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.w900,
+                                          color: isActive ? AdminColors.primaryDark : AdminColors.textSecondary,
+                                        ),
                                       ),
                                     ],
                                   ),
                                 ),
+                                const SizedBox(width: 14),
 
-                                const SizedBox(width: 16),
-
-                                // Emergency Action
-                                ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AdminColors.emergency.withValues(alpha: 0.12),
-                                    foregroundColor: AdminColors.emergency,
-                                    elevation: 0,
-                                    side: const BorderSide(color: AdminColors.emergency),
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                // Waiting Patients Badge
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: isOvercrowded
+                                        ? AdminColors.emergency.withValues(alpha: 0.12)
+                                        : AdminColors.accentMint.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
-                                  onPressed: () => _handleEmergencyHalt(clinic['id'], clinic['doctor_name']),
-                                  icon: const Icon(Icons.front_hand_rounded, size: 16),
-                                  label: const Text('تجميد طارئ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                  child: Column(
+                                    children: [
+                                      Text(
+                                        'في الانتظار',
+                                        style: GoogleFonts.cairo(fontSize: 10.5, color: AdminColors.textSecondary, fontWeight: FontWeight.bold),
+                                      ),
+                                      Text(
+                                        '${branch['waiting_count']} مريض',
+                                        style: GoogleFonts.cairo(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w900,
+                                          color: isOvercrowded ? AdminColors.emergency : AdminColors.success,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+
+                                // Action Switch
+                                Column(
+                                  children: [
+                                    Switch(
+                                      value: isActive,
+                                      activeTrackColor: AdminColors.success,
+                                      onChanged: (val) => _toggleBranchQueue(branch['id'], isActive),
+                                    ),
+                                    Text(
+                                      isActive ? 'الطابور نشط' : 'الطابور معطل',
+                                      style: GoogleFonts.cairo(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: isActive ? AdminColors.success : AdminColors.textSecondary,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -391,13 +498,20 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
     );
   }
 
-  Widget _buildWarRoomMetric(String title, String value, IconData icon, Color color) {
+  Widget _buildWarRoomKpi(String title, String value, IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AdminColors.surfaceWhite,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AdminColors.cardBorderMint),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -409,14 +523,16 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
             ),
             child: Icon(icon, color: color, size: 22),
           ),
-          const SizedBox(width: 14),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontSize: 12, color: AdminColors.textSecondary)),
-              const SizedBox(height: 2),
-              Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: color)),
-            ],
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textSecondary, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 2),
+                Text(value, style: GoogleFonts.cairo(fontSize: 18, fontWeight: FontWeight.w900, color: color)),
+              ],
+            ),
           ),
         ],
       ),
