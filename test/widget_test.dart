@@ -16,7 +16,7 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() => tester.view.resetPhysicalSize());
 
-    await tester.pumpWidget(const DoctorAdminApp());
+    await tester.pumpWidget(const DoctorAdminApp(initialLoggedIn: false));
     expect(find.byType(DoctorAdminApp), findsOneWidget);
   });
 }

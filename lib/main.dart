@@ -3,17 +3,23 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:doctor_admin/core/app_colors.dart';
 import 'package:doctor_admin/core/supabase_config.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:doctor_admin/features/auth/presentation/screens/admin_login_screen.dart';
 import 'package:doctor_admin/features/dashboard/presentation/screens/admin_dashboard_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AdminSupabaseConfig.initialize();
 
-  runApp(const DoctorAdminApp());
+  final prefs = await SharedPreferences.getInstance();
+  final isLoggedIn = prefs.getBool('is_admin_logged_in') ?? false;
+
+  runApp(DoctorAdminApp(initialLoggedIn: isLoggedIn));
 }
 
 class DoctorAdminApp extends StatelessWidget {
-  const DoctorAdminApp({super.key});
+  final bool initialLoggedIn;
+  const DoctorAdminApp({super.key, required this.initialLoggedIn});
 
   @override
   Widget build(BuildContext context) {
@@ -42,7 +48,7 @@ class DoctorAdminApp extends StatelessWidget {
           surface: AdminColors.surfaceWhite,
         ),
       ),
-      home: const AdminDashboardScreen(),
+      home: initialLoggedIn ? const AdminDashboardScreen() : const AdminLoginScreen(),
     );
   }
 }

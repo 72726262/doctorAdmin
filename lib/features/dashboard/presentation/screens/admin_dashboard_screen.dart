@@ -8,6 +8,8 @@ import 'package:doctor_admin/features/approvals/presentation/screens/pending_app
 import 'package:doctor_admin/features/subscriptions/presentation/screens/subscription_requests_screen.dart';
 import 'package:doctor_admin/features/announcements/presentation/screens/announcements_screen.dart';
 import 'package:doctor_admin/features/audit_security/presentation/screens/audit_security_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:doctor_admin/features/auth/presentation/screens/admin_login_screen.dart';
 import 'package:doctor_admin/features/analytics/presentation/screens/analytics_bi_screen.dart';
 import 'package:doctor_admin/features/settings/presentation/screens/admin_settings_screen.dart';
 
@@ -33,6 +35,26 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     'التحليلات الاستراتيجية والخرائط الحرارية',
     'طرق السداد وإعدادات النظام',
   ];
+
+  Future<void> _handleLogout(BuildContext context) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('is_admin_logged_in');
+    try {
+      await AdminSupabaseConfig.client.auth.signOut();
+    } catch (_) {}
+
+    if (!context.mounted) return;
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            const AdminLoginScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+        transitionDuration: const Duration(milliseconds: 300),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -109,19 +131,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   ),
                 ),
 
-                // Footer Info
+                // Footer Info & Logout
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   color: Colors.black.withValues(alpha: 0.25),
-                  child: const Row(
+                  child: Row(
                     children: [
-                      Icon(Icons.lock_person_rounded, color: AdminColors.accentMint, size: 16),
-                      SizedBox(width: 6),
-                      Expanded(
+                      const Icon(Icons.shield_rounded, color: AdminColors.accentMint, size: 16),
+                      const SizedBox(width: 6),
+                      const Expanded(
                         child: Text(
-                          'Super Admin Session Active',
-                          style: TextStyle(color: Colors.white70, fontSize: 11),
+                          'المشرف العام (أدمن)',
+                          style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold),
                         ),
+                      ),
+                      IconButton(
+                        tooltip: 'تسجيل الخروج',
+                        icon: const Icon(Icons.logout_rounded, color: Colors.redAccent, size: 18),
+                        onPressed: () => _handleLogout(context),
                       ),
                     ],
                   ),
