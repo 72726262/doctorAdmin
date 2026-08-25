@@ -215,8 +215,10 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
                   'reviewed_at': DateTime.now().toIso8601String(),
                 }).eq('id', verificationId);
 
+                await _client.from('profiles').update({
+                  'is_approved': false,
+                }).eq('id', userId);
                 _fetchVerifications();
-
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
