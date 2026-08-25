@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart' as intl;
 import 'package:doctor_admin/core/app_colors.dart';
 import 'package:doctor_admin/core/supabase_config.dart';
 
@@ -10,15 +11,46 @@ class SubscriptionRequestsScreen extends StatefulWidget {
   State<SubscriptionRequestsScreen> createState() => _SubscriptionRequestsScreenState();
 }
 
-class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen> {
+class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
+    with SingleTickerProviderStateMixin {
   final _client = AdminSupabaseConfig.client;
+  late TabController _tabController;
+  final TextEditingController _searchController = TextEditingController();
+
   bool _isLoading = true;
+  String _searchQuery = '';
   List<Map<String, dynamic>> _requests = [];
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        _fetchRequests();
+      }
+    });
     _fetchRequests();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  String get _currentStatusTab {
+    switch (_tabController.index) {
+      case 0:
+        return 'PENDING';
+      case 1:
+        return 'APPROVED';
+      case 2:
+        return 'REJECTED';
+      default:
+        return 'PENDING';
+    }
   }
 
   Future<void> _fetchRequests() async {
@@ -27,24 +59,28 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
       final res = await _client.from('subscription_requests').select('''
         id,
         user_id,
-        payment_method_id,
         amount,
+        amount_paid,
+        months,
+        target_month,
         sender_number,
         transaction_reference,
+        payment_method,
         receipt_image_url,
         status,
         notes,
+        rejection_reason,
         created_at,
+        reviewed_at,
+        role,
+        plan_name,
         profiles (
           full_name,
           phone,
           governorate,
           role
-        ),
-        payment_methods (
-          name
         )
-      ''').order('created_at', ascending: false);
+      ''').eq('status', _currentStatusTab).order('created_at', ascending: false);
 
       if (mounted) {
         setState(() {
@@ -53,69 +89,277 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
         });
       }
     } catch (e) {
+      debugPrint('Error fetching subscription requests: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _approveSubscription(String reqId, String userId) async {
+  /// اعتماد فوري وتمديد الاشتراك بعدد الأيام المحددة
+  Future<void> _approveSubscriptionWithDays(String reqId, String userId, int days, String? adminNotes) async {
+    // 1. تحديث لحظي في الذاكرة فوراً لسرعة وسلاسة الواجهة
+    final previousList = List<Map<String, dynamic>>.from(_requests);
+    setState(() {
+      _requests.removeWhere((r) => r['id'] == reqId);
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('🎉 تم اعتماد الإيصال وتمديد اشتراك الحساب لـ $days يوماً بنجاح!'),
+        backgroundColor: AdminColors.success,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+
+    // 2. المزامنة مع السيرفر عبر الـ RPC
     try {
-      // 1. Update request status to APPROVED
-      await _client.from('subscription_requests').update({'status': 'APPROVED'}).eq('id', reqId);
-
-      // 2. Extend doctor and pharmacy subscriptions 30 days
-      final expiresAt = DateTime.now().add(const Duration(days: 30)).toIso8601String();
-      await _client.from('doctors').update({
-        'subscription_status': 'ACTIVE',
-        'subscription_expires_at': expiresAt,
-      }).eq('id', userId);
-
-      await _client.from('pharmacies').update({
-        'subscription_status': 'ACTIVE',
-      }).eq('id', userId);
-
-      await _client.from('profiles').update({
-        'is_approved': true,
-      }).eq('id', userId);
-
-      _fetchRequests();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('🎉 تم اعتماد إيصال السداد وتفعيل اشتراك الطبيب لـ 30 يوماً بنجاح!'),
-            backgroundColor: AdminColors.success,
-          ),
-        );
-      }
+      final res = await _client.rpc('admin_approve_subscription_with_custom_days', params: {
+        'p_request_id': reqId,
+        'p_days': days,
+        'p_admin_notes': adminNotes,
+      });
+      debugPrint('Approval result: $res');
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خطأ: $e'), backgroundColor: AdminColors.emergency));
+      debugPrint('Fallback manual update: $e');
+      try {
+        final expiresAt = DateTime.now().add(Duration(days: days)).toIso8601String();
+        await _client.from('subscription_requests').update({
+          'status': 'APPROVED',
+          'reviewed_at': DateTime.now().toIso8601String(),
+          'notes': adminNotes,
+        }).eq('id', reqId);
+
+        await _client.from('doctors').update({
+          'subscription_status': 'ACTIVE',
+          'subscription_expires_at': expiresAt,
+        }).eq('id', userId);
+
+        await _client.from('pharmacies').update({
+          'subscription_status': 'ACTIVE',
+          'subscription_expires_at': expiresAt,
+        }).eq('id', userId);
+
+        await _client.from('profiles').update({'is_approved': true}).eq('id', userId);
+      } catch (err) {
+        if (mounted) {
+          setState(() => _requests = previousList);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('تعذر اعتماد الطلب: $err'), backgroundColor: AdminColors.emergency),
+          );
+        }
       }
     }
   }
 
-  Future<void> _rejectSubscription(String reqId) async {
-    try {
-      await _client.from('subscription_requests').update({'status': 'REJECTED'}).eq('id', reqId);
-      _fetchRequests();
+  /// حوار اعتماد وتحديد مدة التمديد
+  void _showApproveDurationDialog(Map<String, dynamic> req) {
+    final reqId = req['id'] as String;
+    final userId = req['user_id'] as String;
+    final profile = req['profiles'] as Map<String, dynamic>? ?? {};
+    final fullName = profile['full_name'] ?? 'الطبيب / الصيدلي';
+    final requestedMonths = req['months'] ?? 1;
+    final amount = req['amount'] ?? req['amount_paid'] ?? 350;
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تم رفض الإيصال'), backgroundColor: AdminColors.emergency),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خطأ: $e'), backgroundColor: AdminColors.emergency));
-      }
-    }
+    int selectedDays = (requestedMonths as int) * 30;
+    final daysCtrl = TextEditingController(text: selectedDays.toString());
+    final notesCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.check_circle_rounded, color: AdminColors.success, size: 24),
+              const SizedBox(width: 8),
+              Text('اعتماد إيصال السداد وتمديد الاشتراك 🌟', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 15)),
+            ],
+          ),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: AdminColors.accentMintLight, borderRadius: BorderRadius.circular(10)),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.person_rounded, color: AdminColors.primaryDark, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '$fullName • المبلغ: $amount ج.م (طلب $requestedMonths شهر)',
+                            style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13, color: AdminColors.primaryDark),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text('حدد عدد الأيام المراد تمديدها للحساب:', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                  const SizedBox(height: 8),
+
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildDurationChip('30 يوماً (شهر)', 30, selectedDays, (d) {
+                        setDialogState(() {
+                          selectedDays = d;
+                          daysCtrl.text = d.toString();
+                        });
+                      }),
+                      _buildDurationChip('60 يوماً (شهرين)', 60, selectedDays, (d) {
+                        setDialogState(() {
+                          selectedDays = d;
+                          daysCtrl.text = d.toString();
+                        });
+                      }),
+                      _buildDurationChip('90 يوماً (3 أشهر)', 90, selectedDays, (d) {
+                        setDialogState(() {
+                          selectedDays = d;
+                          daysCtrl.text = d.toString();
+                        });
+                      }),
+                      _buildDurationChip('180 يوماً (6 أشهر)', 180, selectedDays, (d) {
+                        setDialogState(() {
+                          selectedDays = d;
+                          daysCtrl.text = d.toString();
+                        });
+                      }),
+                      _buildDurationChip('365 يوماً (سنة)', 365, selectedDays, (d) {
+                        setDialogState(() {
+                          selectedDays = d;
+                          daysCtrl.text = d.toString();
+                        });
+                      }),
+                    ],
+                  ),
+
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: daysCtrl,
+                    keyboardType: TextInputType.number,
+                    onChanged: (val) {
+                      final parsed = int.tryParse(val);
+                      if (parsed != null && parsed > 0) {
+                        setDialogState(() => selectedDays = parsed);
+                      }
+                    },
+                    decoration: InputDecoration(
+                      labelText: 'أو اكتب عدد الأيام يدوياً',
+                      suffixText: 'يوم',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: notesCtrl,
+                    decoration: InputDecoration(
+                      labelText: 'ملاحظات الإدارة (اختياري)',
+                      hintText: 'مثال: تم التأكد من وصول الحوالة عبر فودافون كاش',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text('إلغاء', style: GoogleFonts.cairo())),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: AdminColors.success, foregroundColor: Colors.white),
+              onPressed: () {
+                Navigator.pop(ctx);
+                _approveSubscriptionWithDays(reqId, userId, selectedDays, notesCtrl.text.trim());
+              },
+              child: Text('تأكيد الاعتماد والتمديد ($selectedDays يوم) 🚀', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDurationChip(String label, int days, int currentDays, Function(int) onSelect) {
+    final isSelected = currentDays == days;
+    return ChoiceChip(
+      label: Text(label, style: GoogleFonts.cairo(fontSize: 11, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+      selected: isSelected,
+      selectedColor: AdminColors.primaryDark,
+      labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black87),
+      onSelected: (_) => onSelect(days),
+    );
+  }
+
+  /// حوار الرفض مع كتابة السبب
+  void _showRejectDialog(Map<String, dynamic> req) {
+    final reqId = req['id'] as String;
+    final reasonCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('رفض إيصال السداد ❌', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 15)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('يرجى توضيح سبب الرفض ليظهر للطبيب في حسابه:', style: GoogleFonts.cairo(fontSize: 12.5)),
+            const SizedBox(height: 10),
+            TextField(
+              controller: reasonCtrl,
+              maxLines: 3,
+              decoration: InputDecoration(
+                hintText: 'مثال: صورة الإيصال غير واضحة أو المبلغ المحول غير مكتمل...',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text('إلغاء', style: GoogleFonts.cairo())),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AdminColors.emergency, foregroundColor: Colors.white),
+            onPressed: () async {
+              final reason = reasonCtrl.text.trim();
+              if (reason.isEmpty) return;
+              Navigator.pop(ctx);
+
+              final previousList = List<Map<String, dynamic>>.from(_requests);
+              setState(() => _requests.removeWhere((r) => r['id'] == reqId));
+
+              try {
+                await _client.from('subscription_requests').update({
+                  'status': 'REJECTED',
+                  'rejection_reason': reason,
+                  'reviewed_at': DateTime.now().toIso8601String(),
+                }).eq('id', reqId);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('تم رفض الإيصال وحفظ السبب'), backgroundColor: AdminColors.emergency),
+                );
+              } catch (e) {
+                if (mounted) setState(() => _requests = previousList);
+              }
+            },
+            child: Text('تأكيد الرفض', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showReceiptInspectorModal(Map<String, dynamic> req) {
     final profile = req['profiles'] as Map<String, dynamic>? ?? {};
-    final paymentMethod = req['payment_methods'] as Map<String, dynamic>? ?? {};
     final receiptUrl = req['receipt_image_url'] as String?;
-    final isPending = req['status'] == 'PENDING';
+    final fullName = profile['full_name'] ?? 'الشريك';
+    final amount = req['amount'] ?? req['amount_paid'] ?? 350;
+    final months = req['months'] ?? 1;
 
     showDialog(
       context: context,
@@ -123,133 +367,39 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         child: Container(
           width: 650,
-          padding: const EdgeInsets.all(28),
+          padding: const EdgeInsets.all(24),
           child: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Header
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(color: AdminColors.accentMintLight, borderRadius: BorderRadius.circular(10)),
-                          child: const Icon(Icons.receipt_long_rounded, color: AdminColors.primaryDark, size: 24),
-                        ),
-                        const SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('فحص إيصال السداد المالي', style: GoogleFonts.cairo(fontSize: 16, fontWeight: FontWeight.w900)),
-                            Text('مقدم الطلب: ${profile['full_name'] ?? 'طبيب'}', style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textSecondary)),
-                          ],
-                        ),
-                      ],
-                    ),
+                    Text('معاينة إيصال سداد: $fullName', style: GoogleFonts.cairo(fontSize: 16, fontWeight: FontWeight.bold)),
                     IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.pop(ctx)),
                   ],
                 ),
+                Text('المبلغ: $amount ج.م • المدة: $months شهر', style: GoogleFonts.cairo(fontSize: 12.5, color: AdminColors.textSecondary)),
                 const SizedBox(height: 16),
-                const Divider(),
-                const SizedBox(height: 12),
-
-                // Info Grid
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildInfoItem('طريقة الدفع', paymentMethod['name'] ?? 'فودافون كاش / إنستاباي'),
-                    ),
-                    Expanded(
-                      child: _buildInfoItem('المبلغ المحول', '${req['amount'] ?? 500} ج.م'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildInfoItem('رقم هاتف المحول', req['sender_number'] ?? profile['phone'] ?? 'غير متوفر'),
-                    ),
-                    Expanded(
-                      child: _buildInfoItem('الرقم المرجعي للعملية', req['transaction_reference'] ?? 'تحويل مباشر'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // Receipt Image Preview
-                Text('صورة الإيصال المرفوعة:', style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                Container(
-                  width: double.infinity,
-                  height: 260,
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.04),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AdminColors.cardBorder),
-                  ),
-                  child: (receiptUrl != null && receiptUrl.isNotEmpty)
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: Image.network(
-                            receiptUrl,
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) => const Center(
-                              child: Icon(Icons.broken_image_rounded, size: 48, color: Colors.grey),
-                            ),
-                          ),
-                        )
-                      : Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.image_not_supported_rounded, size: 44, color: Colors.grey),
-                              const SizedBox(height: 6),
-                              Text('لم يتم إرفاق صورة إيصال', style: GoogleFonts.cairo(color: Colors.grey, fontSize: 12)),
-                            ],
-                          ),
-                        ),
-                ),
-
-                const SizedBox(height: 24),
-
-                // Action Buttons
-                if (isPending)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AdminColors.emergency,
-                          side: const BorderSide(color: AdminColors.emergency),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                        icon: const Icon(Icons.cancel_outlined, size: 18),
-                        label: Text('رفض الإيصال', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          _rejectSubscription(req['id']);
-                        },
+                if (receiptUrl != null && receiptUrl.isNotEmpty)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.network(
+                      receiptUrl,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => Container(
+                        padding: const EdgeInsets.all(40),
+                        color: Colors.grey.shade100,
+                        child: const Center(child: Text('تعذر تحميل الصورة')),
                       ),
-                      const SizedBox(width: 12),
-                      ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AdminColors.success,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                        icon: const Icon(Icons.verified_rounded, size: 18),
-                        label: Text('اعتماد وتفعيل 30 يوماً', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          _approveSubscription(req['id'], req['user_id']);
-                        },
-                      ),
-                    ],
+                    ),
+                  )
+                else
+                  Container(
+                    padding: const EdgeInsets.all(30),
+                    color: Colors.grey.shade100,
+                    child: const Center(child: Text('لا توجد صورة إيصال مرفقة')),
                   ),
               ],
             ),
@@ -259,22 +409,18 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
     );
   }
 
-  Widget _buildInfoItem(String label, String value) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(color: AdminColors.backgroundCanvas, borderRadius: BorderRadius.circular(10)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textSecondary)),
-          Text(value, style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold, color: AdminColors.textPrimary)),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final filtered = _requests.where((r) {
+      if (_searchQuery.trim().isEmpty) return true;
+      final q = _searchQuery.toLowerCase();
+      final profile = r['profiles'] as Map<String, dynamic>? ?? {};
+      final name = (profile['full_name'] as String? ?? '').toLowerCase();
+      final phone = (profile['phone'] as String? ?? '').toLowerCase();
+      final sender = (r['sender_number'] as String? ?? '').toLowerCase();
+      return name.contains(q) || phone.contains(q) || sender.contains(q);
+    }).toList();
+
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -291,161 +437,192 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
                     children: [
                       Container(
                         padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(color: AdminColors.accentMintLight, borderRadius: BorderRadius.circular(10)),
+                        decoration: BoxDecoration(color: AdminColors.primaryDark.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
                         child: const Icon(Icons.receipt_long_rounded, color: AdminColors.primaryDark, size: 24),
                       ),
                       const SizedBox(width: 10),
-                      Text('إدارة الاشتراكات وإيصالات السداد المالي', style: GoogleFonts.cairo(fontSize: 18, fontWeight: FontWeight.w900, color: AdminColors.textPrimary)),
+                      Text('إدارة الاشتراكات والمدفوعات البنكية 💳', style: GoogleFonts.cairo(fontSize: 18, fontWeight: FontWeight.w900, color: AdminColors.textPrimary)),
                     ],
                   ),
                   const SizedBox(height: 4),
-                  Text('مراجعة إيصالات التحويل البنكي، فودافون كاش، وإنستاباي وتفعيل باقات الأطباء بضغطة زر', style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textSecondary)),
+                  Text('تدقيق إيصالات سداد الأطباء والصيدليات (فودافون كاش، إنستاباي) وتمديد الباقات والتحكم بالمدد', style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textSecondary)),
                 ],
               ),
               ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(backgroundColor: AdminColors.primaryDark, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                style: ElevatedButton.styleFrom(backgroundColor: AdminColors.primaryDark, foregroundColor: Colors.white),
                 icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: Text('تحديث الطلبات', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+                label: Text('تحديث الإيصالات', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
                 onPressed: _fetchRequests,
               ),
             ],
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 18),
 
-          // Requests List
+          // Search Bar
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AdminColors.cardBorderMint),
+            ),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (v) => setState(() => _searchQuery = v),
+              style: GoogleFonts.cairo(fontSize: 13),
+              decoration: InputDecoration(
+                hintText: '🔍 ابحث باسم الطبيب، رقم الهاتف، أو رقم المحفظة المحول منها...',
+                prefixIcon: const Icon(Icons.search_rounded, color: AdminColors.primaryDark),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 14),
+
+          // Tabs
+          Container(
+            height: 42,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.grey.shade300),
+            ),
+            child: TabBar(
+              controller: _tabController,
+              isScrollable: true,
+              labelColor: AdminColors.primaryDark,
+              unselectedLabelColor: Colors.grey.shade600,
+              indicator: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4)],
+              ),
+              tabs: const [
+                Tab(text: 'إيصالات قيد المراجعة ⏳'),
+                Tab(text: 'إيصالات معتمدة ✅'),
+                Tab(text: 'إيصالات مرفوضة ❌'),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // List
           Expanded(
             child: _isLoading
-                ? const Center(child: CircularProgressIndicator(color: AdminColors.primaryDark))
-                : _requests.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : filtered.isEmpty
                     ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(20),
-                              decoration: const BoxDecoration(color: AdminColors.accentMintLight, shape: BoxShape.circle),
-                              child: const Icon(Icons.check_circle_outline_rounded, size: 48, color: AdminColors.success),
-                            ),
-                            const SizedBox(height: 16),
-                            Text('لا توجد طلبات اشتراك أو إيصالات سداد حالياً', style: GoogleFonts.cairo(fontSize: 16, fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 4),
-                            Text('عندما يقوم أي طبيب بتحويل رسوم الاشتراك ورفع الإيصال، سيظهر هنا فوراً', style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textSecondary)),
-                          ],
-                        ),
+                        child: Text('لا توجد طلبات اشتراك في هذا القسم حالياً', style: GoogleFonts.cairo(fontSize: 14, color: AdminColors.textSecondary)),
                       )
-                    : ListView.separated(
-                        itemCount: _requests.length,
-                        separatorBuilder: (context, index) => const SizedBox(height: 10),
+                    : ListView.builder(
+                        itemCount: filtered.length,
                         itemBuilder: (context, index) {
-                          final req = _requests[index];
-                          final profile = req['profiles'] as Map<String, dynamic>? ?? {};
-                          final paymentMethod = req['payment_methods'] as Map<String, dynamic>? ?? {};
-                          final status = req['status'] ?? 'PENDING';
-                          final isApproved = status == 'APPROVED';
-                          final isPending = status == 'PENDING';
-
-                          return Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: AdminColors.surfaceWhite,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: isPending ? AdminColors.accentCyan.withValues(alpha: 0.5) : AdminColors.cardBorderMint),
-                              boxShadow: [
-                                BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
-                              ],
-                            ),
-                            child: Row(
-                              children: [
-                                // Icon
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: isApproved
-                                        ? AdminColors.accentMintLight
-                                        : isPending
-                                            ? Colors.amber.withValues(alpha: 0.12)
-                                            : Colors.red.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Icon(
-                                    isApproved
-                                        ? Icons.check_circle_rounded
-                                        : isPending
-                                            ? Icons.hourglass_top_rounded
-                                            : Icons.cancel_rounded,
-                                    color: isApproved
-                                        ? AdminColors.success
-                                        : isPending
-                                            ? Colors.amber.shade900
-                                            : AdminColors.emergency,
-                                    size: 24,
-                                  ),
-                                ),
-                                const SizedBox(width: 14),
-
-                                // Info
-                                Expanded(
-                                  flex: 3,
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Text(
-                                            profile['full_name'] ?? 'طبيب المنظومة',
-                                            style: GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w800, color: AdminColors.textPrimary),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: isApproved
-                                                  ? AdminColors.accentMintLight
-                                                  : isPending
-                                                      ? Colors.amber.withValues(alpha: 0.15)
-                                                      : Colors.red.withValues(alpha: 0.1),
-                                              borderRadius: BorderRadius.circular(6),
-                                            ),
-                                            child: Text(
-                                              isApproved ? 'معتمد ومفعل 🟢' : isPending ? 'قيد المراجعة ⏳' : 'مرفوض 🔴',
-                                              style: GoogleFonts.cairo(
-                                                fontSize: 10.5,
-                                                fontWeight: FontWeight.bold,
-                                                color: isApproved
-                                                    ? AdminColors.success
-                                                    : isPending
-                                                        ? Colors.amber.shade900
-                                                        : AdminColors.emergency,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      Text(
-                                        'طريقة التحويل: ${paymentMethod['name'] ?? 'فودافون كاش / إنستاباي'} | المبلغ: ${req['amount'] ?? 500} ج.م',
-                                        style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textSecondary),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-
-                                // Inspect Receipt Button
-                                ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AdminColors.primaryDark,
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                  ),
-                                  icon: const Icon(Icons.receipt_rounded, size: 16),
-                                  label: Text('فحص الإيصال', style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold)),
-                                  onPressed: () => _showReceiptInspectorModal(req),
-                                ),
-                              ],
-                            ),
-                          );
+                          final req = filtered[index];
+                          return _buildRequestCard(req);
                         },
                       ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRequestCard(Map<String, dynamic> req) {
+    final profile = req['profiles'] as Map<String, dynamic>? ?? {};
+    final fullName = profile['full_name'] ?? 'طبيب المنظومة';
+    final phone = profile['phone'] ?? '';
+    final gov = profile['governorate'] ?? 'مصر';
+    final role = (req['role'] ?? profile['role'] ?? 'DOCTOR').toString().toUpperCase();
+    final isDoctor = role == 'DOCTOR';
+    final amount = req['amount'] ?? req['amount_paid'] ?? 350;
+    final months = req['months'] ?? 1;
+    final paymentMethod = req['payment_method'] ?? 'تحويل إلكتروني';
+    final senderNumber = req['sender_number'] as String?;
+    final dateStr = req['created_at'] as String?;
+    final status = (req['status'] as String? ?? 'PENDING').toUpperCase();
+    final isPending = status == 'PENDING';
+
+    String formattedDate = '';
+    if (dateStr != null) {
+      try {
+        formattedDate = intl.DateFormat('yyyy/MM/dd - hh:mm a').format(DateTime.parse(dateStr));
+      } catch (_) {}
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AdminColors.cardBorderMint),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundColor: isDoctor ? AdminColors.primaryDark.withValues(alpha: 0.1) : Colors.teal.shade50,
+                    child: Icon(isDoctor ? Icons.medical_services_rounded : Icons.local_pharmacy_rounded, color: isDoctor ? AdminColors.primaryDark : Colors.teal),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(fullName, style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 15)),
+                      Text('$phone • $gov', style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textSecondary)),
+                    ],
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(color: AdminColors.accentMintLight, borderRadius: BorderRadius.circular(8)),
+                child: Text('$amount ج.م ($months شهر)', style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 13, color: AdminColors.primaryDark)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text('طريقة الدفع: $paymentMethod ${senderNumber != null && senderNumber.isNotEmpty ? "• من رقم: $senderNumber" : ""}', style: GoogleFonts.cairo(fontSize: 12, color: Colors.grey.shade800)),
+          Text('تاريخ الإرسال: $formattedDate', style: GoogleFonts.cairo(fontSize: 11, color: Colors.grey)),
+          const SizedBox(height: 14),
+          const Divider(height: 1),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              TextButton.icon(
+                icon: const Icon(Icons.image_search_rounded, size: 18),
+                label: Text('معاينة صورة الإيصال 📷', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                onPressed: () => _showReceiptInspectorModal(req),
+              ),
+              if (isPending)
+                Row(
+                  children: [
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(foregroundColor: AdminColors.emergency, side: const BorderSide(color: AdminColors.emergency)),
+                      icon: const Icon(Icons.cancel_rounded, size: 16),
+                      label: Text('رفض ❌', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12)),
+                      onPressed: () => _showRejectDialog(req),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(backgroundColor: AdminColors.success, foregroundColor: Colors.white),
+                      icon: const Icon(Icons.verified_rounded, size: 16),
+                      label: Text('اعتماد وتمديد المدة 🌟', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12)),
+                      onPressed: () => _showApproveDurationDialog(req),
+                    ),
+                  ],
+                ),
+            ],
           ),
         ],
       ),
