@@ -488,7 +488,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final client = AdminSupabaseConfig.client;
 
     try {
-      final patientsCount = await client.from('profiles').select('id').eq('role', 'PATIENT');
+      final patientsCount = await client.from('profiles').select('id').inFilter('role', ['PATIENT', 'patient']);
       final doctorsCount = await client.from('doctors').select('id');
       final pharmaciesCount = await client.from('pharmacies').select('id');
       final ticketsCount = await client.from('tickets').select('id');

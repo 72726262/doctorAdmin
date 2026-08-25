@@ -156,7 +156,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                 const SizedBox(height: 12),
                 _buildSystemInfoRow('قاعدة البيانات الرئيسية:', 'PostgreSQL 17 (Supabase Enterprise Managed)'),
                 const SizedBox(height: 6),
-                _buildSystemInfoRow('نطاق السيرفر (Supabase URL):', 'http://178.105.236.62:8000 (Hetzner Dedicated Server)'),
+                _buildSystemInfoRow('نطاق السيرفر (Supabase URL):', 'https://griffin-cooling-method-ata.trycloudflare.com (Cloudflare SSL Secured)'),
                 const SizedBox(height: 6),
                 _buildSystemInfoRow('نظام المصادقة والتسجيل:', 'Firebase Phone Auth + Supabase Master Auth'),
                 const SizedBox(height: 6),
