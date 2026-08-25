@@ -14,7 +14,10 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
     with SingleTickerProviderStateMixin {
   final _client = AdminSupabaseConfig.client;
   late TabController _tabController;
+  final TextEditingController _searchController = TextEditingController();
+
   String _selectedRoleFilter = 'ALL'; // 'ALL', 'doctor', 'pharmacy'
+  String _searchQuery = '';
   bool _isLoading = true;
   List<Map<String, dynamic>> _verificationsList = [];
 
@@ -33,6 +36,7 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -52,7 +56,6 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
   Future<void> _fetchVerifications() async {
     setState(() => _isLoading = true);
     try {
-      // 1. محاولة جلب البيانات من جدول partner_verifications
       var query = _client.from('partner_verifications').select('''
         id,
         user_id,
@@ -64,9 +67,16 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
         bio,
         id_front_url,
         id_back_url,
+        national_id_front_url,
+        national_id_back_url,
+        syndicate_card_url,
+        practice_license_url,
+        commercial_register_url,
+        tax_card_url,
         status,
         rejection_reason,
         created_at,
+        reviewed_at,
         profiles (
           is_approved,
           fcm_token
@@ -83,44 +93,6 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
       final res = await query.order('created_at', ascending: false);
       List<Map<String, dynamic>> list = List<Map<String, dynamic>>.from(res as List);
 
-      // 2. إذا كان قسم PENDING وفارغاً، نفحص جدول profiles القديم للتوافق
-      if (list.isEmpty && _currentStatusTab == 'PENDING') {
-        final legacyRes = await _client
-            .from('profiles')
-            .select('''
-              id,
-              full_name,
-              phone,
-              role,
-              governorate,
-              created_at,
-              doctors (specialty, bio),
-              pharmacies (name, address_text)
-            ''')
-            .eq('is_approved', false)
-            .order('created_at', ascending: false);
-
-        for (var p in legacyRes) {
-          final isDoc = (p['role'] as String? ?? '').toLowerCase().contains('doc');
-          final doc = p['doctors'] as Map<String, dynamic>?;
-          final pha = p['pharmacies'] as Map<String, dynamic>?;
-          list.add({
-            'id': p['id'],
-            'user_id': p['id'],
-            'role': isDoc ? 'doctor' : 'pharmacy',
-            'full_name': p['full_name'] ?? (isDoc ? 'طبيب' : 'صيدلية'),
-            'phone': p['phone'] ?? '',
-            'governorate': p['governorate'] ?? 'مصر',
-            'specialty': doc?['specialty'],
-            'bio': doc?['bio'] ?? pha?['address_text'],
-            'id_front_url': '',
-            'id_back_url': '',
-            'status': 'PENDING',
-            'created_at': p['created_at'],
-          });
-        }
-      }
-
       if (mounted) {
         setState(() {
           _verificationsList = list;
@@ -128,44 +100,69 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
         });
       }
     } catch (e) {
+      debugPrint('Error fetching verifications: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  /// اعتماد فوري لحظي (Optimistic Instant Update)
   Future<void> _approvePartner(Map<String, dynamic> item) async {
     final verificationId = item['id'] as String;
     final userId = item['user_id'] as String;
     final fullName = item['full_name'] as String? ?? 'الشريك';
 
+    // 1. تحديث لحظي في الذاكرة فوراً لسرعة وسلاسة الواجهة
+    final previousList = List<Map<String, dynamic>>.from(_verificationsList);
+    setState(() {
+      _verificationsList.removeWhere((v) => v['id'] == verificationId);
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle_rounded, color: Colors.white),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '🎉 تم اعتماد وتفعيل حساب $fullName بنجاح!',
+                style: GoogleFonts.cairo(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: AdminColors.success,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+
+    // 2. مزامنة الباك إند في الخلفية
     try {
-      // 1. تحديث جدول partner_verifications
       await _client.from('partner_verifications').update({
         'status': 'APPROVED',
         'reviewed_at': DateTime.now().toIso8601String(),
       }).eq('id', verificationId);
 
-      // 2. تحديث جدول profiles
       await _client.from('profiles').update({'is_approved': true}).eq('id', userId);
 
-      _fetchVerifications();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('🎉 تم اعتماد وتفعيل حساب $fullName بنجاح!'),
-            backgroundColor: AdminColors.success,
-          ),
-        );
+      final role = (item['role'] as String? ?? '').toUpperCase();
+      if (role == 'DOCTOR') {
+        await _client.from('doctors').update({'subscription_status': 'ACTIVE'}).eq('id', userId);
+      } else if (role == 'PHARMACY') {
+        await _client.from('pharmacies').update({'subscription_status': 'ACTIVE'}).eq('id', userId);
       }
     } catch (e) {
+      // في حالة الفشل نرجع الحالة السابقة
       if (mounted) {
+        setState(() => _verificationsList = previousList);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطأ: $e'), backgroundColor: AdminColors.emergency),
+          SnackBar(content: Text('تعذر إتمام العملية: $e'), backgroundColor: AdminColors.emergency),
         );
       }
     }
   }
 
+  /// رفض فوري لحظي (Optimistic Instant Rejection)
   void _showRejectDialog(Map<String, dynamic> item) {
     final verificationId = item['id'] as String;
     final userId = item['user_id'] as String;
@@ -175,20 +172,30 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('رفض طلب الانضمام ❌', style: GoogleFonts.cairo(fontWeight: FontWeight.w900)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.cancel_rounded, color: AdminColors.emergency, size: 24),
+            const SizedBox(width: 8),
+            Text('رفض طلب الانضمام ❌', style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 16)),
+          ],
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('يرجى توضيح سبب الرفض للشريك ($fullName):', style: GoogleFonts.cairo(fontSize: 12.5)),
-            const SizedBox(height: 10),
+            Text('يرجى توضيح سبب الرفض للشريك ($fullName):', style: GoogleFonts.cairo(fontSize: 13, color: AdminColors.textPrimary)),
+            const SizedBox(height: 12),
             TextField(
               controller: reasonCtrl,
               maxLines: 3,
+              style: GoogleFonts.cairo(fontSize: 13),
               decoration: InputDecoration(
-                hintText: 'مثال: صورة كارنيه النقابة أو الترخيص غير واضحة، يرجى إعادة تصويرها...',
-                hintStyle: GoogleFonts.cairo(fontSize: 11.5),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                hintText: 'مثال: صورة ترخيص المزاولة غير واضحة، يرجى إعادة رفعها بدقة أعلى...',
+                hintStyle: GoogleFonts.cairo(fontSize: 12, color: Colors.grey.shade500),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                filled: true,
+                fillColor: Colors.grey.shade50,
               ),
             ),
           ],
@@ -196,39 +203,49 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: Text('إلغاء', style: GoogleFonts.cairo()),
+            child: Text('إلغاء', style: GoogleFonts.cairo(color: Colors.grey.shade700)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AdminColors.emergency),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AdminColors.emergency,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            ),
             onPressed: () async {
-              if (reasonCtrl.text.trim().isEmpty) {
+              final reason = reasonCtrl.text.trim();
+              if (reason.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text('يرجى كتابة سبب الرفض', style: GoogleFonts.cairo())),
                 );
                 return;
               }
               Navigator.pop(ctx);
+
+              // تحديث لحظي فوري في الذاكرة
+              final previousList = List<Map<String, dynamic>>.from(_verificationsList);
+              setState(() {
+                _verificationsList.removeWhere((v) => v['id'] == verificationId);
+              });
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('تم رفض الطلب وحفظ السبب للشريك $fullName'),
+                  backgroundColor: AdminColors.emergency,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+
               try {
                 await _client.from('partner_verifications').update({
                   'status': 'REJECTED',
-                  'rejection_reason': reasonCtrl.text.trim(),
+                  'rejection_reason': reason,
                   'reviewed_at': DateTime.now().toIso8601String(),
                 }).eq('id', verificationId);
 
-                await _client.from('profiles').update({
-                  'is_approved': false,
-                }).eq('id', userId);
-                _fetchVerifications();
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('تم رفض الطلب وحفظ السبب للشريك $fullName'),
-                      backgroundColor: AdminColors.emergency,
-                    ),
-                  );
-                }
+                await _client.from('profiles').update({'is_approved': false}).eq('id', userId);
               } catch (e) {
                 if (mounted) {
+                  setState(() => _verificationsList = previousList);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('خطأ: $e'), backgroundColor: AdminColors.emergency),
                   );
@@ -243,30 +260,44 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
   }
 
   void _showFullImage(String url, String title) {
+    if (url.trim().isEmpty) return;
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
         backgroundColor: Colors.transparent,
         insetPadding: const EdgeInsets.all(20),
         child: Container(
-          constraints: const BoxConstraints(maxWidth: 800, maxHeight: 650),
+          constraints: const BoxConstraints(maxWidth: 850, maxHeight: 650),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 25,
+                offset: const Offset(0, 10),
+              ),
+            ],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   color: AdminColors.primaryDark,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(title, style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                    Row(
+                      children: [
+                        const Icon(Icons.image_search_rounded, color: AdminColors.accentMint, size: 20),
+                        const SizedBox(width: 8),
+                        Text(title, style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                      ],
+                    ),
                     IconButton(
                       icon: const Icon(Icons.close_rounded, color: Colors.white),
                       onPressed: () => Navigator.pop(ctx),
@@ -303,6 +334,17 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
 
   @override
   Widget build(BuildContext context) {
+    // تصفية حية وفورية بناءً على نص البحث بالاسم أو رقم الهاتف
+    final filteredList = _verificationsList.where((item) {
+      if (_searchQuery.trim().isEmpty) return true;
+      final query = _searchQuery.trim().toLowerCase();
+      final name = (item['full_name'] as String? ?? '').toLowerCase();
+      final phone = (item['phone'] as String? ?? '').toLowerCase();
+      final specialty = (item['specialty'] as String? ?? '').toLowerCase();
+      final gov = (item['governorate'] as String? ?? '').toLowerCase();
+      return name.contains(query) || phone.contains(query) || specialty.contains(query) || gov.contains(query);
+    }).toList();
+
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -344,6 +386,7 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
                   backgroundColor: AdminColors.primaryDark,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
                 icon: const Icon(Icons.refresh_rounded, size: 18),
                 label: Text('تحديث الطلبات', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
@@ -352,26 +395,84 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
             ],
           ),
 
+          const SizedBox(height: 20),
+
+          // شريط البحث المباشر (Search Bar by Name & Phone)
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AdminColors.cardBorderMint),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (val) => setState(() => _searchQuery = val),
+              style: GoogleFonts.cairo(fontSize: 13.5),
+              decoration: InputDecoration(
+                hintText: '🔍 ابحث فوراً باسم الطبيب، الصيدلية، التخصص، المحافظة، أو رقم الهاتف...',
+                hintStyle: GoogleFonts.cairo(fontSize: 13, color: Colors.grey.shade500),
+                prefixIcon: const Icon(Icons.search_rounded, color: AdminColors.primaryDark),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear_rounded, size: 18),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
+                    : null,
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              ),
+            ),
+          ),
+
           const SizedBox(height: 16),
 
-          // شريط التبويبات (معلقة / معتمدة / مرفوضة) وفلترة الشركاء
+          // التابات وفلاتر الدور
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
+              // فلاتر التصنيف (طبيب / صيدلية)
+              Row(
+                children: [
+                  Text('التصنيف:', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13, color: AdminColors.textPrimary)),
+                  const SizedBox(width: 8),
+                  _buildRoleChip('الكل 🌐', 'ALL'),
+                  const SizedBox(width: 6),
+                  _buildRoleChip('أطباء 🩺', 'doctor'),
+                  const SizedBox(width: 6),
+                  _buildRoleChip('صيدليات 💊', 'pharmacy'),
+                ],
+              ),
+
+              // تابات الحالة (معلقة، معتمدة، مرفوضة)
               Container(
-                width: 360,
+                height: 40,
                 decoration: BoxDecoration(
-                  color: AdminColors.surfaceWhite,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AdminColors.cardBorderMint),
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.grey.shade300),
                 ),
                 child: TabBar(
                   controller: _tabController,
+                  isScrollable: true,
                   labelColor: AdminColors.primaryDark,
-                  unselectedLabelColor: AdminColors.textSecondary,
-                  indicatorColor: AdminColors.accentMint,
-                  indicatorWeight: 3,
-                  labelStyle: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 12),
+                  unselectedLabelColor: Colors.grey.shade600,
+                  indicator: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 1)),
+                    ],
+                  ),
                   tabs: const [
                     Tab(text: 'طلبات معلقة ⏳'),
                     Tab(text: 'معتمدة ✅'),
@@ -379,56 +480,21 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
                   ],
                 ),
               ),
-
-              // فلتر الدور
-              Row(
-                children: [
-                  Text('التصنيف:', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12)),
-                  const SizedBox(width: 8),
-                  _buildFilterChip('ALL', 'الكل 🌐'),
-                  const SizedBox(width: 6),
-                  _buildFilterChip('doctor', 'أطباء 🩺'),
-                  const SizedBox(width: 6),
-                  _buildFilterChip('pharmacy', 'صيدليات 💊'),
-                ],
-              ),
             ],
           ),
 
           const SizedBox(height: 16),
 
-          // قائمة الطلبات
+          // محتوى القائمة
           Expanded(
             child: _isLoading
-                ? const Center(child: CircularProgressIndicator(color: AdminColors.primaryDark))
-                : _verificationsList.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(24),
-                              decoration: const BoxDecoration(color: AdminColors.accentMintLight, shape: BoxShape.circle),
-                              child: const Icon(Icons.check_circle_outline_rounded, size: 56, color: AdminColors.success),
-                            ),
-                            const SizedBox(height: 18),
-                            Text(
-                              'لا توجد طلبات في هذا القسم حالياً',
-                              style: GoogleFonts.cairo(fontSize: 17, fontWeight: FontWeight.w800, color: AdminColors.textPrimary),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'ستظهر هنا أي طلبات توثيق جديدة للمراجعة والتدقيق.',
-                              style: GoogleFonts.cairo(fontSize: 12.5, color: AdminColors.textSecondary),
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.separated(
-                        itemCount: _verificationsList.length,
-                        separatorBuilder: (context, index) => const SizedBox(height: 14),
+                ? const Center(child: CircularProgressIndicator())
+                : filteredList.isEmpty
+                    ? _buildEmptyState()
+                    : ListView.builder(
+                        itemCount: filteredList.length,
                         itemBuilder: (context, index) {
-                          final item = _verificationsList[index];
+                          final item = filteredList[index];
                           return _buildVerificationCard(item);
                         },
                       ),
@@ -438,29 +504,58 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
     );
   }
 
-  Widget _buildFilterChip(String key, String label) {
-    final isSelected = _selectedRoleFilter == key;
+  Widget _buildRoleChip(String label, String roleKey) {
+    final isSelected = _selectedRoleFilter == roleKey;
     return InkWell(
       onTap: () {
-        setState(() => _selectedRoleFilter = key);
+        setState(() => _selectedRoleFilter = roleKey);
         _fetchVerifications();
       },
       borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: isSelected ? AdminColors.primaryDark : AdminColors.surfaceWhite,
+          color: isSelected ? AdminColors.primaryDark : Colors.white,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: isSelected ? AdminColors.primaryDark : AdminColors.cardBorderMint),
         ),
         child: Text(
           label,
           style: GoogleFonts.cairo(
-            fontSize: 11,
-            fontWeight: isSelected ? FontWeight.w900 : FontWeight.bold,
-            color: isSelected ? Colors.white : AdminColors.textSecondary,
+            fontSize: 12,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+            color: isSelected ? Colors.white : AdminColors.textPrimary,
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: AdminColors.accentMintLight.withValues(alpha: 0.4),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.check_circle_outline_rounded, color: AdminColors.primaryDark, size: 48),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            _searchQuery.isNotEmpty ? 'لا توجد نتائج تطابق بحثك "$_searchQuery"' : 'لا توجد طلبات في هذا القسم حالياً',
+            style: GoogleFonts.cairo(fontSize: 16, fontWeight: FontWeight.bold, color: AdminColors.textPrimary),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _searchQuery.isNotEmpty ? 'جرب البحث باسم آخر أو تأكد من رقم الهاتف' : 'ستظهر هنا أي طلبات توثيق جديدة للمراجعة والتدقيق.',
+            style: GoogleFonts.cairo(fontSize: 12.5, color: AdminColors.textSecondary),
+          ),
+        ],
       ),
     );
   }
@@ -468,205 +563,258 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
   Widget _buildVerificationCard(Map<String, dynamic> item) {
     final role = (item['role'] as String? ?? 'doctor').toLowerCase();
     final isDoctor = role.contains('doc');
-    final fullName = item['full_name'] as String? ?? 'الشريك';
-    final phone = item['phone'] as String? ?? '';
+    final fullName = item['full_name'] as String? ?? 'غير محدد';
+    final phone = item['phone'] as String? ?? 'لا يوجد';
     final governorate = item['governorate'] as String? ?? 'مصر';
-    final specialty = item['specialty'] as String?;
-    final bio = item['bio'] as String?;
-    final frontUrl = item['id_front_url'] as String? ?? '';
-    final backUrl = item['id_back_url'] as String? ?? '';
+    final specialty = item['specialty'] as String? ?? (isDoctor ? 'طب عام' : 'صيدلية');
+    final bio = item['bio'] as String? ?? '';
     final status = item['status'] as String? ?? 'PENDING';
     final rejectionReason = item['rejection_reason'] as String?;
 
-    return Container(
-      padding: const EdgeInsets.all(18),
+    // روابط الصور
+    final frontUrl = item['id_front_url'] as String? ?? item['national_id_front_url'] as String? ?? '';
+    final backUrl = item['id_back_url'] as String? ?? item['national_id_back_url'] as String? ?? '';
+    final syndicateUrl = item['syndicate_card_url'] as String? ?? '';
+    final licenseUrl = item['practice_license_url'] as String? ?? item['commercial_register_url'] as String? ?? '';
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: AdminColors.surfaceWhite,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: status == 'APPROVED'
-              ? Colors.green.shade300
-              : (status == 'REJECTED' ? Colors.red.shade300 : Colors.amber.withValues(alpha: 0.5)),
-        ),
+        border: Border.all(color: AdminColors.cardBorderMint),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
         ],
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // أيقونة الدور
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: isDoctor ? AdminColors.primaryDark.withValues(alpha: 0.1) : AdminColors.accentMintLight,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              isDoctor ? Icons.medical_services_rounded : Icons.local_pharmacy_rounded,
-              color: isDoctor ? AdminColors.primaryDark : AdminColors.accentMint,
-              size: 24,
-            ),
-          ),
-          const SizedBox(width: 14),
-
-          // البيانات الأساسية
-          Expanded(
-            flex: 3,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // الهيدر والبيانات الأساسية
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Row(
                   children: [
-                    Text(
-                      fullName,
-                      style: GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w800, color: AdminColors.textPrimary),
+                    CircleAvatar(
+                      radius: 24,
+                      backgroundColor: isDoctor ? AdminColors.primaryDark.withValues(alpha: 0.1) : AdminColors.accentMint.withValues(alpha: 0.15),
+                      child: Icon(
+                        isDoctor ? Icons.medical_services_rounded : Icons.local_pharmacy_rounded,
+                        color: isDoctor ? AdminColors.primaryDark : AdminColors.accentMint,
+                        size: 26,
+                      ),
                     ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: isDoctor ? AdminColors.primaryDark.withValues(alpha: 0.1) : Colors.lightBlue.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        isDoctor ? 'طبيب / عيادة 🩺' : 'صيدلية معتمدة 💊',
-                        style: GoogleFonts.cairo(fontSize: 10.5, fontWeight: FontWeight.bold, color: isDoctor ? AdminColors.primaryDark : Colors.blue.shade800),
-                      ),
+                    const SizedBox(width: 14),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              fullName,
+                              style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 16, color: AdminColors.textPrimary),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: isDoctor ? AdminColors.primaryDark.withValues(alpha: 0.1) : Colors.teal.shade50,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                isDoctor ? 'طبيب 🩺' : 'صيدلية 💊',
+                                style: GoogleFonts.cairo(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: isDoctor ? AdminColors.primaryDark : Colors.teal.shade800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '$specialty • $governorate',
+                          style: GoogleFonts.cairo(fontSize: 12.5, color: AdminColors.textSecondary, fontWeight: FontWeight.w600),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-                if (specialty != null && specialty.isNotEmpty)
-                  Text('التخصص: $specialty', style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.accentCyan, fontWeight: FontWeight.bold)),
-                if (bio != null && bio.isNotEmpty)
-                  Text('النبذة / العنوان: $bio', style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textSecondary)),
-                Text(
-                  '📞 الهاتف: $phone | 📍 المحافظة: $governorate',
-                  style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textSecondary),
-                ),
-                if (status == 'REJECTED' && rejectionReason != null) ...[
-                  const SizedBox(height: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(6), border: Border.all(color: Colors.red.shade200)),
-                    child: Text('سبب الرفض: $rejectionReason', style: GoogleFonts.cairo(fontSize: 11, color: Colors.red.shade900, fontWeight: FontWeight.bold)),
+
+                // تفاصيل التواصل
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey.shade200),
                   ),
-                ],
+                  child: Row(
+                    children: [
+                      const Icon(Icons.phone_iphone_rounded, size: 16, color: AdminColors.primaryDark),
+                      const SizedBox(width: 6),
+                      Text(phone, style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold, color: AdminColors.textPrimary)),
+                    ],
+                  ),
+                ),
               ],
             ),
-          ),
 
-          // وثائق الهوية والترخيص (KYC Documents Preview)
-          if (frontUrl.isNotEmpty || backUrl.isNotEmpty) ...[
-            const SizedBox(width: 12),
-            Row(
+            if (bio.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text('📝 النبذة / العنوان: $bio', style: GoogleFonts.cairo(fontSize: 12, color: Colors.grey.shade800)),
+              ),
+            ],
+
+            if (status == 'REJECTED' && rejectionReason != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline_rounded, color: Colors.red, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text('سبب الرفض: $rejectionReason', style: GoogleFonts.cairo(fontSize: 12, color: Colors.red.shade900, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 16),
+            const Divider(height: 1),
+            const SizedBox(height: 14),
+
+            // معرض صور المستندات والبطاقات (KYC Document Previews)
+            Text('المستندات ووثائق الهوية المرفقة (اضغط للتكبير والفحص):', style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold, color: AdminColors.textSecondary)),
+            const SizedBox(height: 10),
+
+            Wrap(
+              spacing: 12,
+              runSpacing: 10,
               children: [
                 if (frontUrl.isNotEmpty)
-                  _buildKycDocThumbnail('وجه البطاقة / الترخيص', frontUrl),
-                if (backUrl.isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  _buildKycDocThumbnail('ظهر البطاقة / السجل', backUrl),
+                  _buildDocThumbnail(frontUrl, 'بطاقة الرقم القومي (الوجه الأمامي)'),
+                if (backUrl.isNotEmpty)
+                  _buildDocThumbnail(backUrl, 'بطاقة الرقم القومي (الوجه الخلفي)'),
+                if (syndicateUrl.isNotEmpty)
+                  _buildDocThumbnail(syndicateUrl, 'كارنيه النقابة الساري'),
+                if (licenseUrl.isNotEmpty)
+                  _buildDocThumbnail(licenseUrl, isDoctor ? 'تصريح مزاولة المهنة' : 'السجل التجاري والبطاقة الضريبية'),
+                if (frontUrl.isEmpty && backUrl.isEmpty && syndicateUrl.isEmpty && licenseUrl.isEmpty)
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(8)),
+                    child: Text('⚠️ لم يتم إرفاق صور مستندات ورقية مع هذا الطلب', style: GoogleFonts.cairo(fontSize: 12, color: Colors.amber.shade900)),
+                  ),
+              ],
+            ),
+
+            if (status == 'PENDING') ...[
+              const SizedBox(height: 18),
+              const Divider(height: 1),
+              const SizedBox(height: 14),
+
+              // أزرار اتخاذ القرار السريعة (Approve / Reject Action Buttons)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AdminColors.emergency,
+                      side: const BorderSide(color: AdminColors.emergency),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    icon: const Icon(Icons.cancel_rounded, size: 18),
+                    label: Text('رفض الطلب ❌', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13)),
+                    onPressed: () => _showRejectDialog(item),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AdminColors.success,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      elevation: 0,
+                    ),
+                    icon: const Icon(Icons.check_circle_rounded, size: 18),
+                    label: Text('اعتماد وقبول فوري 🚀', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13)),
+                    onPressed: () => _approvePartner(item),
+                  ),
                 ],
-              ],
-            ),
-          ],
-
-          const SizedBox(width: 14),
-
-          // أزرار القرار
-          if (status == 'PENDING') ...[
-            Column(
-              children: [
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AdminColors.success,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  icon: const Icon(Icons.check_rounded, size: 16),
-                  label: Text('اعتماد وتفعيل', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12)),
-                  onPressed: () => _approvePartner(item),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AdminColors.emergency,
-                    side: const BorderSide(color: AdminColors.emergency),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  icon: const Icon(Icons.close_rounded, size: 16),
-                  label: Text('رفض الطلب', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12)),
-                  onPressed: () => _showRejectDialog(item),
-                ),
-              ],
-            ),
-          ] else ...[
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: status == 'APPROVED' ? Colors.green.shade50 : Colors.red.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: status == 'APPROVED' ? Colors.green.shade300 : Colors.red.shade300),
               ),
-              child: Text(
-                status == 'APPROVED' ? 'تم الاعتماد ✅' : 'مرفوض ❌',
-                style: GoogleFonts.cairo(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: status == 'APPROVED' ? Colors.green.shade900 : Colors.red.shade900,
-                ),
-              ),
-            ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildKycDocThumbnail(String title, String url) {
+  Widget _buildDocThumbnail(String url, String title) {
     return InkWell(
       onTap: () => _showFullImage(url, title),
       borderRadius: BorderRadius.circular(10),
       child: Container(
-        width: 85,
-        height: 65,
+        width: 140,
+        height: 100,
         decoration: BoxDecoration(
+          color: Colors.grey.shade100,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AdminColors.cardBorderMint),
+          border: Border.all(color: Colors.grey.shade300),
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(9),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              Image.network(
-                url,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
-                  color: Colors.grey.shade200,
-                  child: const Icon(Icons.broken_image, size: 18, color: Colors.grey),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.network(
+              url,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Center(
+                child: Icon(Icons.broken_image_rounded, color: Colors.grey.shade400, size: 30),
+              ),
+            ),
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                color: Colors.black.withValues(alpha: 0.65),
+                child: Text(
+                  title,
+                  style: GoogleFonts.cairo(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
                 ),
               ),
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: Container(
-                  color: Colors.black.withValues(alpha: 0.65),
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.zoom_in, color: Colors.white, size: 10),
-                      const SizedBox(width: 2),
-                      Text('تكبير', style: GoogleFonts.cairo(fontSize: 8.5, color: Colors.white, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
