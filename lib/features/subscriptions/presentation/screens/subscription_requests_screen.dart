@@ -94,19 +94,29 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
     }
   }
 
-  /// اعتماد فوري وتمديد الاشتراك بعدد الأيام المحددة
-  Future<void> _approveSubscriptionWithDays(String reqId, String userId, int days, String? adminNotes) async {
+  /// اعتماد فوري وتمديد الاشتراك بعدد الأيام المحددة أو التاريخ المحدد
+  Future<void> _approveSubscriptionWithDays({
+    required String reqId,
+    required String userId,
+    required int days,
+    DateTime? exactExpiryDate,
+    String? adminNotes,
+  }) async {
     // 1. تحديث لحظي في الذاكرة فوراً لسرعة وسلاسة الواجهة
     final previousList = List<Map<String, dynamic>>.from(_requests);
     setState(() {
       _requests.removeWhere((r) => r['id'] == reqId);
     });
 
+    final targetDateStr = exactExpiryDate != null
+        ? intl.DateFormat('yyyy/MM/dd').format(exactExpiryDate)
+        : intl.DateFormat('yyyy/MM/dd').format(DateTime.now().add(Duration(days: days)));
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('🎉 تم اعتماد الإيصال وتمديد اشتراك الحساب لـ $days يوماً بنجاح!'),
+        content: Text('🎉 تم اعتماد الإيصال وتمديد الاشتراك حتى ($targetDateStr) بنجاح!'),
         backgroundColor: AdminColors.success,
-        duration: const Duration(seconds: 2),
+        duration: const Duration(seconds: 3),
       ),
     );
 
@@ -116,12 +126,13 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
         'p_request_id': reqId,
         'p_days': days,
         'p_admin_notes': adminNotes,
+        'p_exact_expiry_date': exactExpiryDate?.toIso8601String(),
       });
       debugPrint('Approval result: $res');
     } catch (e) {
       debugPrint('Fallback manual update: $e');
       try {
-        final expiresAt = DateTime.now().add(Duration(days: days)).toIso8601String();
+        final expiresAt = (exactExpiryDate ?? DateTime.now().add(Duration(days: days))).toIso8601String();
         await _client.from('subscription_requests').update({
           'status': 'APPROVED',
           'reviewed_at': DateTime.now().toIso8601String(),
@@ -150,7 +161,7 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
     }
   }
 
-  /// حوار اعتماد وتحديد مدة التمديد
+  /// حوار اعتماد وتحديد تاريخ ومدة الانتهاء بدقة
   void _showApproveDurationDialog(Map<String, dynamic> req) {
     final reqId = req['id'] as String;
     final userId = req['user_id'] as String;
@@ -160,6 +171,7 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
     final amount = req['amount'] ?? req['amount_paid'] ?? 350;
 
     int selectedDays = (requestedMonths as int) * 30;
+    DateTime calculatedExpiryDate = DateTime.now().add(Duration(days: selectedDays));
     final daysCtrl = TextEditingController(text: selectedDays.toString());
     final notesCtrl = TextEditingController();
 
@@ -170,98 +182,181 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Row(
             children: [
-              const Icon(Icons.check_circle_rounded, color: AdminColors.success, size: 24),
+              const Icon(Icons.verified_user_rounded, color: AdminColors.success, size: 26),
               const SizedBox(width: 8),
-              Text('اعتماد إيصال السداد وتمديد الاشتراك 🌟', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 15)),
+              Text('اعتماد وتحديد تاريخ انتهاء الاشتراك 🗓️', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 16)),
             ],
           ),
           content: SizedBox(
-            width: 480,
+            width: 520,
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // بيانات الطبيب والطلب
                   Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: AdminColors.accentMintLight, borderRadius: BorderRadius.circular(10)),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AdminColors.accentMintLight,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AdminColors.primaryDark.withValues(alpha: 0.15)),
+                    ),
                     child: Row(
                       children: [
-                        const Icon(Icons.person_rounded, color: AdminColors.primaryDark, size: 20),
-                        const SizedBox(width: 8),
+                        const Icon(Icons.person_rounded, color: AdminColors.primaryDark, size: 24),
+                        const SizedBox(width: 10),
                         Expanded(
-                          child: Text(
-                            '$fullName • المبلغ: $amount ج.م (طلب $requestedMonths شهر)',
-                            style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13, color: AdminColors.primaryDark),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(fullName, style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 14, color: AdminColors.primaryDark)),
+                              Text('المبلغ المسدد: $amount ج.م • المدة المطلوبة: $requestedMonths شهر', style: GoogleFonts.cairo(fontSize: 12, color: Colors.grey.shade800)),
+                            ],
                           ),
                         ),
                       ],
                     ),
                   ),
+
                   const SizedBox(height: 16),
-                  Text('حدد عدد الأيام المراد تمديدها للحساب:', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12.5)),
+
+                  // كارت معاينة تاريخ الانتهاء الجديد الحي
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF0F4C3A), Color(0xFF1E6B55)],
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('تاريخ انتهاء الاشتراك الجديد المحدد:', style: GoogleFonts.cairo(color: Colors.white70, fontSize: 11.5)),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(color: AdminColors.accentMint, borderRadius: BorderRadius.circular(6)),
+                              child: Text('+$selectedDays يوم', style: GoogleFonts.cairo(color: AdminColors.primaryDark, fontWeight: FontWeight.bold, fontSize: 11)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          intl.DateFormat('EEEE d MMMM yyyy', 'ar').format(calculatedExpiryDate),
+                          style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+                  Text('1. خيارات المدد السريعة للتمديد:', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12.5)),
                   const SizedBox(height: 8),
 
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _buildDurationChip('30 يوماً (شهر)', 30, selectedDays, (d) {
+                      _buildDurationChip('شهر واحد (+30 يوم)', 30, selectedDays, (d) {
                         setDialogState(() {
                           selectedDays = d;
                           daysCtrl.text = d.toString();
+                          calculatedExpiryDate = DateTime.now().add(Duration(days: d));
                         });
                       }),
-                      _buildDurationChip('60 يوماً (شهرين)', 60, selectedDays, (d) {
+                      _buildDurationChip('شهرين (+60 يوم)', 60, selectedDays, (d) {
                         setDialogState(() {
                           selectedDays = d;
                           daysCtrl.text = d.toString();
+                          calculatedExpiryDate = DateTime.now().add(Duration(days: d));
                         });
                       }),
-                      _buildDurationChip('90 يوماً (3 أشهر)', 90, selectedDays, (d) {
+                      _buildDurationChip('3 أشهر (+90 يوم)', 90, selectedDays, (d) {
                         setDialogState(() {
                           selectedDays = d;
                           daysCtrl.text = d.toString();
+                          calculatedExpiryDate = DateTime.now().add(Duration(days: d));
                         });
                       }),
-                      _buildDurationChip('180 يوماً (6 أشهر)', 180, selectedDays, (d) {
+                      _buildDurationChip('6 أشهر (+180 يوم)', 180, selectedDays, (d) {
                         setDialogState(() {
                           selectedDays = d;
                           daysCtrl.text = d.toString();
+                          calculatedExpiryDate = DateTime.now().add(Duration(days: d));
                         });
                       }),
-                      _buildDurationChip('365 يوماً (سنة)', 365, selectedDays, (d) {
+                      _buildDurationChip('سنة كاملة (+365 يوم)', 365, selectedDays, (d) {
                         setDialogState(() {
                           selectedDays = d;
                           daysCtrl.text = d.toString();
+                          calculatedExpiryDate = DateTime.now().add(Duration(days: d));
                         });
                       }),
                     ],
                   ),
 
                   const SizedBox(height: 14),
-                  TextField(
-                    controller: daysCtrl,
-                    keyboardType: TextInputType.number,
-                    onChanged: (val) {
-                      final parsed = int.tryParse(val);
-                      if (parsed != null && parsed > 0) {
-                        setDialogState(() => selectedDays = parsed);
-                      }
-                    },
-                    decoration: InputDecoration(
-                      labelText: 'أو اكتب عدد الأيام يدوياً',
-                      suffixText: 'يوم',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: daysCtrl,
+                          keyboardType: TextInputType.number,
+                          onChanged: (val) {
+                            final parsed = int.tryParse(val);
+                            if (parsed != null && parsed > 0) {
+                              setDialogState(() {
+                                selectedDays = parsed;
+                                calculatedExpiryDate = DateTime.now().add(Duration(days: parsed));
+                              });
+                            }
+                          },
+                          decoration: InputDecoration(
+                            labelText: 'أو اكتب عدد الأيام يدوياً',
+                            suffixText: 'يوم',
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.calendar_month_rounded, size: 18, color: AdminColors.primaryDark),
+                        label: Text('اختيار تاريخ', style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold)),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onPressed: () async {
+                          final picked = await showDatePicker(
+                            context: context,
+                            initialDate: calculatedExpiryDate,
+                            firstDate: DateTime.now(),
+                            lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
+                          );
+                          if (picked != null) {
+                            final diff = picked.difference(DateTime.now()).inDays + 1;
+                            setDialogState(() {
+                              calculatedExpiryDate = picked;
+                              selectedDays = diff > 0 ? diff : 1;
+                              daysCtrl.text = selectedDays.toString();
+                            });
+                          }
+                        },
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: notesCtrl,
                     decoration: InputDecoration(
                       labelText: 'ملاحظات الإدارة (اختياري)',
-                      hintText: 'مثال: تم التأكد من وصول الحوالة عبر فودافون كاش',
+                      hintText: 'مثال: تم التأكد من التحويل واعتماد التجديد بنجاح',
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     ),
@@ -273,12 +368,21 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: Text('إلغاء', style: GoogleFonts.cairo())),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: AdminColors.success, foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(backgroundColor: AdminColors.success, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12)),
               onPressed: () {
                 Navigator.pop(ctx);
-                _approveSubscriptionWithDays(reqId, userId, selectedDays, notesCtrl.text.trim());
+                _approveSubscriptionWithDays(
+                  reqId: reqId,
+                  userId: userId,
+                  days: selectedDays,
+                  exactExpiryDate: calculatedExpiryDate,
+                  adminNotes: notesCtrl.text.trim(),
+                );
               },
-              child: Text('تأكيد الاعتماد والتمديد ($selectedDays يوم) 🚀', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+              child: Text(
+                'تأكيد الاعتماد حتى (${intl.DateFormat('yyyy/MM/dd').format(calculatedExpiryDate)}) 🚀',
+                style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13),
+              ),
             ),
           ],
         ),
