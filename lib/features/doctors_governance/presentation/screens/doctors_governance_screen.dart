@@ -652,6 +652,472 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
     );
   }
 
+  /// نافذة منبثقة لتعديل بيانات وحساب الطبيب بالكامل (استبدال الطبيب / نقل ملكية العيادة)
+  void _showEditDoctorAccountDialog(Map<String, dynamic> doc) {
+    final profile = doc['profiles'] as Map<String, dynamic>? ?? {};
+    final doctorId = doc['id'] as String;
+    final initialName = (profile['full_name'] as String?) ?? '';
+    final initialPhone = (profile['phone'] as String?) ?? '';
+    final initialSpecialty = (doc['specialty'] as String?) ?? '';
+    final initialGov = (profile['governorate'] as String?) ?? 'القاهرة';
+    final initialBio = (doc['bio'] as String?) ?? '';
+
+    final nameController = TextEditingController(text: initialName);
+    final phoneController = TextEditingController(text: initialPhone);
+    final specialtyController = TextEditingController(text: initialSpecialty);
+    final bioController = TextEditingController(text: initialBio);
+    final emailController = TextEditingController();
+    final passwordController = TextEditingController();
+
+    const governorates = [
+      'القاهرة',
+      'الجيزة',
+      'الإسكندرية',
+      'الدقهلية',
+      'الغربية',
+      'الشرقية',
+      'المنوفية',
+      'البحيرة',
+      'كفر الشيخ',
+      'دمياط',
+      'بورسعيد',
+      'الإسماعيلية',
+      'السويس',
+      'القليوبية',
+      'بني سويف',
+      'الفيوم',
+      'المنيا',
+      'أسيوط',
+      'سوهاج',
+      'قنا',
+      'الأقصر',
+      'أسوان',
+      'البحر الأحمر',
+      'الوادي الجديد',
+      'مطروح',
+      'شمال سيناء',
+      'جنوب سيناء',
+    ];
+
+    String selectedGov = governorates.contains(initialGov) ? initialGov : governorates.first;
+    bool obscurePassword = true;
+    bool isSaving = false;
+    bool isLoadingSecurity = true;
+    bool hasRequestedSecurity = false;
+
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            // Lazy load email on open
+            if (!hasRequestedSecurity) {
+              hasRequestedSecurity = true;
+              _client.rpc('admin_get_account_security_info', params: {'p_user_id': doctorId}).then((res) {
+                if (dialogCtx.mounted) {
+                  setModalState(() {
+                    isLoadingSecurity = false;
+                    if (res != null && res is Map && res['email'] != null) {
+                      emailController.text = res['email'].toString();
+                    }
+                  });
+                }
+              }).catchError((_) {
+                if (dialogCtx.mounted) {
+                  setModalState(() {
+                    isLoadingSecurity = false;
+                  });
+                }
+              });
+            }
+
+            final messenger = ScaffoldMessenger.of(context);
+            final navigator = Navigator.of(dialogCtx);
+
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              child: Container(
+                width: 680,
+                constraints: const BoxConstraints(maxHeight: 780),
+                decoration: BoxDecoration(
+                  color: AdminColors.surfaceWhite,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.15),
+                      blurRadius: 28,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                      decoration: const BoxDecoration(
+                        color: AdminColors.primaryDark,
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(Icons.manage_accounts_rounded, color: Colors.white, size: 24),
+                              ),
+                              const SizedBox(width: 12),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'تعديل بيانات وحساب الطبيب (استبدال / نقل ملكية) 🩺',
+                                    style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15),
+                                  ),
+                                  Text(
+                                    'تحديث الهوية، الهاتف، التخصص، أو استبدال الطبيب عند انتقال العيادة',
+                                    style: GoogleFonts.cairo(color: Colors.white70, fontSize: 11.5),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                            onPressed: isSaving ? null : () => navigator.pop(),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Body
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(22),
+                        child: Form(
+                          key: formKey,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Notice banner
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEFF6FF),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFFBFDBFE)),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Icon(Icons.info_outline_rounded, color: Color(0xFF2563EB), size: 20),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        '💡 ملحوظة نقل العيادة والاستبدال: في حال تسليم العيادة لطبيب بديل أو شريك جديد، يمكنك تعديل الاسم، رقم الهاتف، والتخصص وتعيين كلمة مرور جديدة فوراً. جميع فروع العيادة، الإعدادات، وقوائم الانتظار ستظل محفوظة ومرتبطة بحساب العيادة دون أي انقطاع.',
+                                        style: GoogleFonts.cairo(
+                                          fontSize: 11.5,
+                                          height: 1.5,
+                                          color: const Color(0xFF1E40AF),
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 18),
+
+                              // Section: Personal & Professional Data
+                              Text(
+                                'البيانات الشخصية والمهنية',
+                                style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold, color: AdminColors.primaryDark),
+                              ),
+                              const SizedBox(height: 10),
+
+                              // Name & Phone Row
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    flex: 3,
+                                    child: TextFormField(
+                                      controller: nameController,
+                                      style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold),
+                                      decoration: InputDecoration(
+                                        labelText: 'اسم الطبيب بالكامل *',
+                                        labelStyle: GoogleFonts.cairo(fontSize: 12),
+                                        prefixIcon: const Icon(Icons.person_rounded, size: 20),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                                      ),
+                                      validator: (v) => (v == null || v.trim().isEmpty) ? 'اسم الطبيب مطلوب' : null,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    flex: 2,
+                                    child: TextFormField(
+                                      controller: phoneController,
+                                      style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold),
+                                      keyboardType: TextInputType.phone,
+                                      decoration: InputDecoration(
+                                        labelText: 'رقم الهاتف *',
+                                        labelStyle: GoogleFonts.cairo(fontSize: 12),
+                                        prefixIcon: const Icon(Icons.phone_rounded, size: 20),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                                      ),
+                                      validator: (v) => (v == null || v.trim().isEmpty) ? 'رقم الهاتف مطلوب' : null,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 14),
+
+                              // Specialty & Governorate Row
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    flex: 3,
+                                    child: TextFormField(
+                                      controller: specialtyController,
+                                      style: GoogleFonts.cairo(fontSize: 13),
+                                      decoration: InputDecoration(
+                                        labelText: 'التخصص الطبي',
+                                        labelStyle: GoogleFonts.cairo(fontSize: 12),
+                                        prefixIcon: const Icon(Icons.medical_services_rounded, size: 20),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    flex: 2,
+                                    child: DropdownButtonFormField<String>(
+                                      initialValue: selectedGov,
+                                      style: GoogleFonts.cairo(fontSize: 13, color: AdminColors.textPrimary, fontWeight: FontWeight.bold),
+                                      decoration: InputDecoration(
+                                        labelText: 'المحافظة',
+                                        labelStyle: GoogleFonts.cairo(fontSize: 12),
+                                        prefixIcon: const Icon(Icons.location_on_rounded, size: 20),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                                      ),
+                                      items: governorates.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                                      onChanged: (val) {
+                                        if (val != null) setModalState(() => selectedGov = val);
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 14),
+
+                              // Bio
+                              TextFormField(
+                                controller: bioController,
+                                maxLines: 2,
+                                style: GoogleFonts.cairo(fontSize: 12.5),
+                                decoration: InputDecoration(
+                                  labelText: 'النبذة والخبرات المهنية',
+                                  labelStyle: GoogleFonts.cairo(fontSize: 12),
+                                  alignLabelWithHint: true,
+                                  prefixIcon: const Icon(Icons.description_rounded, size: 20),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+
+                              // Section: Security & Login Credentials
+                              Row(
+                                children: [
+                                  const Icon(Icons.lock_person_rounded, color: AdminColors.primaryDark, size: 18),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'بيانات تسجيل الدخول والأمان (حساب العيادة)',
+                                    style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold, color: AdminColors.primaryDark),
+                                  ),
+                                  if (isLoadingSecurity) ...[
+                                    const SizedBox(width: 8),
+                                    const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
+                                  ],
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+
+                              // Email & Password Row
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: TextFormField(
+                                      controller: emailController,
+                                      keyboardType: TextInputType.emailAddress,
+                                      style: GoogleFonts.cairo(fontSize: 12.5),
+                                      decoration: InputDecoration(
+                                        labelText: 'البريد الإلكتروني لتسجيل الدخول',
+                                        labelStyle: GoogleFonts.cairo(fontSize: 12),
+                                        prefixIcon: const Icon(Icons.alternate_email_rounded, size: 20),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                                        helperText: 'يستخدمه الطبيب لتسجيل الدخول بالتطبيق',
+                                        helperStyle: GoogleFonts.cairo(fontSize: 10.5, color: AdminColors.textSecondary),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: TextFormField(
+                                      controller: passwordController,
+                                      obscureText: obscurePassword,
+                                      style: GoogleFonts.cairo(fontSize: 12.5),
+                                      decoration: InputDecoration(
+                                        labelText: 'كلمة مرور جديدة (اختياري)',
+                                        labelStyle: GoogleFonts.cairo(fontSize: 12),
+                                        prefixIcon: const Icon(Icons.password_rounded, size: 20),
+                                        suffixIcon: IconButton(
+                                          icon: Icon(obscurePassword ? Icons.visibility_off_rounded : Icons.visibility_rounded, size: 18),
+                                          onPressed: () => setModalState(() => obscurePassword = !obscurePassword),
+                                        ),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                                        helperText: 'اتركه فارغاً للإبقاء على كلمة المرور الحالية',
+                                        helperStyle: GoogleFonts.cairo(fontSize: 10.5, color: AdminColors.textSecondary),
+                                      ),
+                                      validator: (v) {
+                                        if (v != null && v.trim().isNotEmpty && v.trim().length < 6) {
+                                          return 'كلمة المرور يجب ألا تقل عن 6 أحرف';
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    // Footer
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: AdminColors.backgroundCanvas,
+                        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+                        border: Border(top: BorderSide(color: Colors.grey.shade200)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: isSaving ? null : () => navigator.pop(),
+                            child: Text('إلغاء', style: GoogleFonts.cairo(color: AdminColors.textSecondary, fontWeight: FontWeight.bold)),
+                          ),
+                          const SizedBox(width: 12),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AdminColors.primaryDark,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: isSaving
+                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                : const Icon(Icons.check_circle_rounded, size: 18),
+                            label: Text(
+                              isSaving ? 'جارٍ الحفظ والتحديث...' : 'حفظ التحديثات والبيانات',
+                              style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                            onPressed: isSaving
+                                ? null
+                                : () async {
+                                    if (!formKey.currentState!.validate()) return;
+
+                                    setModalState(() => isSaving = true);
+                                    try {
+                                      final finalName = nameController.text.trim();
+                                      final finalPhone = phoneController.text.trim();
+                                      final finalSpec = specialtyController.text.trim();
+                                      final finalBio = bioController.text.trim();
+                                      final finalEmail = emailController.text.trim().isEmpty ? null : emailController.text.trim();
+                                      final finalPass = passwordController.text.trim().isEmpty ? null : passwordController.text.trim();
+
+                                      final rpcRes = await _client.rpc('admin_update_doctor_account', params: {
+                                        'p_doctor_id': doctorId,
+                                        'p_full_name': finalName,
+                                        'p_phone': finalPhone,
+                                        'p_specialty': finalSpec,
+                                        'p_governorate': selectedGov,
+                                        'p_bio': finalBio,
+                                        'p_email': finalEmail,
+                                        'p_new_password': finalPass,
+                                      });
+
+                                      if (rpcRes != null && rpcRes is Map && rpcRes['success'] == false) {
+                                        throw rpcRes['message'] ?? 'فشل تحديث البيانات';
+                                      }
+
+                                      await AdminAuditService.log(
+                                        actionType: 'UPDATE_DOCTOR_ACCOUNT',
+                                        targetType: 'DOCTOR',
+                                        targetName: finalName,
+                                        targetId: doctorId,
+                                        details: {
+                                          'doctor_id': doctorId,
+                                          'full_name': finalName,
+                                          'phone': finalPhone,
+                                          'specialty': finalSpec,
+                                          'governorate': selectedGov,
+                                          'password_changed': finalPass != null,
+                                        },
+                                      );
+
+                                      navigator.pop();
+                                      messenger.showSnackBar(
+                                        SnackBar(
+                                          content: Text('🟢 تم تحديث بيانات وحساب $finalName بنجاح', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+                                          backgroundColor: AdminColors.success,
+                                        ),
+                                      );
+                                      _fetchDoctors(silent: true);
+                                    } catch (e) {
+                                      setModalState(() => isSaving = false);
+                                      messenger.showSnackBar(
+                                        SnackBar(content: Text('خطأ: $e', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)), backgroundColor: AdminColors.emergency),
+                                      );
+                                    }
+                                  },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   /// نافذة منبثقة لعرض سجل الاشتراكات التاريخي الزمني للطبيب (من تاريخ كذا إلى كذا بالتفصيل)
   void _showDoctorSubscriptionHistoryDialog(Map<String, dynamic> doc) {
     final profile = doc['profiles'] as Map<String, dynamic>? ?? {};
@@ -1237,19 +1703,39 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                             ),
                           ],
                         ),
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.amber.shade700,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          icon: const Icon(Icons.edit_rounded, size: 15),
-                          label: Text('تعديل التقييم ⭐', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12)),
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            _showEditDoctorRatingDialog(doc);
-                          },
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AdminColors.primaryDark,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              icon: const Icon(Icons.manage_accounts_rounded, size: 16),
+                              label: Text('تعديل البيانات والحساب ⚙️', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12)),
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                _showEditDoctorAccountDialog(doc);
+                              },
+                            ),
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.amber.shade700,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              icon: const Icon(Icons.edit_rounded, size: 15),
+                              label: Text('تعديل التقييم ⭐', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12)),
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                _showEditDoctorRatingDialog(doc);
+                              },
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -2194,6 +2680,14 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    // زر تعديل بيانات وحساب الطبيب بالكامل (استبدال / نقل ملكية)
+                                    IconButton(
+                                      icon: const Icon(Icons.manage_accounts_rounded, color: AdminColors.primaryDark, size: 22),
+                                      tooltip: 'تعديل بيانات وحساب الطبيب (استبدال / نقل ملكية) ⚙️',
+                                      onPressed: () => _showEditDoctorAccountDialog(doc),
+                                    ),
+                                    const SizedBox(width: 4),
+
                                     // زر فتح سجل الاشتراكات التاريخي الزمني مباشرة
                                     IconButton(
                                       icon: const Icon(Icons.history_edu_rounded, color: AdminColors.primaryDark, size: 22),
