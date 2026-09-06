@@ -1254,7 +1254,7 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
       return matchGov && matchStatus && matchSearch;
     }).toList();
 
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1426,23 +1426,25 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
           const SizedBox(height: 16),
 
           // Doctors Table / List
-          Expanded(
-            child: _isLoading && _doctors.isEmpty
-                ? const SingleChildScrollView(child: AdminTableSkeleton(rows: 8))
-                : filtered.isEmpty
-                    ? AdminEmptyStateCard(
-                        title: _searchQuery.isNotEmpty
-                            ? 'لا يوجد أطباء مطابقين لبحث "$_searchQuery"'
-                            : 'لا يوجد أطباء في هذا القسم حالياً',
-                        description: _searchQuery.isNotEmpty
-                            ? 'تأكد من كتابة الاسم أو التخصص بشكل صحيح، أو أعد ضبط خيارات البحث.'
-                            : 'جميع بيانات الأطباء والعيادات محدثة وجاهزة للمعاينة والإدارة.',
-                        icon: Icons.medical_services_outlined,
-                        onRefresh: () => _fetchDoctors(),
-                      )
-                    : ListView.separated(
-                        itemCount: filtered.length,
-                        separatorBuilder: (context, index) => const SizedBox(height: 10),
+          if (_isLoading && _doctors.isEmpty)
+            const AdminTableSkeleton(rows: 8)
+          else if (filtered.isEmpty)
+            AdminEmptyStateCard(
+              title: _searchQuery.isNotEmpty
+                  ? 'لا يوجد أطباء مطابقين لبحث "$_searchQuery"'
+                  : 'لا يوجد أطباء في هذا القسم حالياً',
+              description: _searchQuery.isNotEmpty
+                  ? 'تأكد من كتابة الاسم أو التخصص بشكل صحيح، أو أعد ضبط خيارات البحث.'
+                  : 'جميع بيانات الأطباء والعيادات محدثة وجاهزة للمعاينة والإدارة.',
+              icon: Icons.medical_services_outlined,
+              onRefresh: () => _fetchDoctors(),
+            )
+          else
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: filtered.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           final doc = filtered[index];
                           final profile = doc['profiles'] as Map<String, dynamic>? ?? {};
@@ -1601,7 +1603,7 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                           );
                         },
                       ),
-          ),
+          const SizedBox(height: 32),
         ],
       ),
     );

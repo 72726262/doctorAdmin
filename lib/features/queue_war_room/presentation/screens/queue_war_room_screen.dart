@@ -261,7 +261,7 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
     final totalWaitingPatients = _liveBranches.fold<int>(0, (sum, b) => sum + (b['waiting_count'] as int));
     final overcrowdedCount = _liveBranches.where((b) => b['is_overcrowded'] == true).length;
 
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -421,25 +421,25 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
           const SizedBox(height: 16),
 
           // Live Branches Cards Grid / List with Zero Spinners
-          Expanded(
-            child: _isLoading && _liveBranches.isEmpty
-                ? const SingleChildScrollView(
-                    child: AdminWarRoomCardSkeleton(count: 6),
-                  )
-                : filtered.isEmpty
-                    ? AdminEmptyStateCard(
-                        title: _searchQuery.isNotEmpty
-                            ? 'لا توجد طوابير عيادات مطابقة لبحث "$_searchQuery"'
-                            : 'لا توجد طوابير عيادات مسجلة حالياً',
-                        description: _searchQuery.isNotEmpty
-                            ? 'تأكد من اسم الطبيب أو العيادة أو قم باختيار محافظة أخرى.'
-                            : 'سيتم رصد أي طوابير عيادات بمجرد بدء الكشوفات اليومية.',
-                        icon: Icons.radar_rounded,
-                        onRefresh: () => _fetchLiveQueues(),
-                      )
-                    : ListView.separated(
-                        itemCount: filtered.length,
-                        separatorBuilder: (context, index) => const SizedBox(height: 12),
+          if (_isLoading && _liveBranches.isEmpty)
+            const AdminWarRoomCardSkeleton(count: 6)
+          else if (filtered.isEmpty)
+            AdminEmptyStateCard(
+              title: _searchQuery.isNotEmpty
+                  ? 'لا توجد طوابير عيادات مطابقة لبحث "$_searchQuery"'
+                  : 'لا توجد طوابير عيادات مسجلة حالياً',
+              description: _searchQuery.isNotEmpty
+                  ? 'تأكد من اسم الطبيب أو العيادة أو قم باختيار محافظة أخرى.'
+                  : 'سيتم رصد أي طوابير عيادات بمجرد بدء الكشوفات اليومية.',
+              icon: Icons.radar_rounded,
+              onRefresh: () => _fetchLiveQueues(),
+            )
+          else
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: filtered.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 12),
                         itemBuilder: (context, index) {
                           final branch = filtered[index];
                           final isActive = branch['is_queue_active'] as bool;
@@ -644,7 +644,7 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
                           );
                         },
                       ),
-          ),
+          const SizedBox(height: 32),
         ],
       ),
     );

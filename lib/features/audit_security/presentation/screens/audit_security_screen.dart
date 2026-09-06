@@ -152,7 +152,7 @@ class _AuditSecurityScreenState extends State<AuditSecurityScreen> {
       return matchesType && matchesSearch;
     }).toList();
 
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -319,23 +319,25 @@ class _AuditSecurityScreenState extends State<AuditSecurityScreen> {
           const SizedBox(height: 16),
 
           // Audit Logs List
-          Expanded(
-            child: _isLoading && _auditLogs.isEmpty
-                ? const SingleChildScrollView(child: AdminTableSkeleton(rows: 8))
-                : filtered.isEmpty
-                    ? AdminEmptyStateCard(
-                        title: _searchQuery.isNotEmpty
-                            ? 'لا توجد سجلات رقابية مطابقة لبحث "$_searchQuery"'
-                            : 'لا توجد سجلات رقابية في هذا القسم',
-                        description: _searchQuery.isNotEmpty
-                            ? 'تأكد من كتابة الكلمات الدلالية بشكل صحيح، أو اختر تصنيفاً آخر.'
-                            : 'جميع الحركات الإدارية والرقابية في المنظومة تدون هنا بشكل مشفر ولحظي.',
-                        icon: Icons.security_rounded,
-                        onRefresh: _fetchAuditLogs,
-                      )
-                    : ListView.builder(
-                        itemCount: filtered.length,
-                        itemBuilder: (context, index) {
+          if (_isLoading && _auditLogs.isEmpty)
+            const AdminTableSkeleton(rows: 8)
+          else if (filtered.isEmpty)
+            AdminEmptyStateCard(
+              title: _searchQuery.isNotEmpty
+                  ? 'لا توجد سجلات رقابية مطابقة لبحث "$_searchQuery"'
+                  : 'لا توجد سجلات رقابية في هذا القسم',
+              description: _searchQuery.isNotEmpty
+                  ? 'تأكد من كتابة الكلمات الدلالية بشكل صحيح، أو اختر تصنيفاً آخر.'
+                  : 'جميع الحركات الإدارية والرقابية في المنظومة تدون هنا بشكل مشفر ولحظي.',
+              icon: Icons.security_rounded,
+              onRefresh: _fetchAuditLogs,
+            )
+          else
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: filtered.length,
+              itemBuilder: (context, index) {
                           final log = filtered[index];
                           final status = (log['status'] as String? ?? 'SUCCESS').toUpperCase();
                           final isBlocked = status == 'BLOCKED' || status == 'REJECTED';
@@ -413,7 +415,7 @@ class _AuditSecurityScreenState extends State<AuditSecurityScreen> {
                           );
                         },
                       ),
-          ),
+          const SizedBox(height: 32),
         ],
       ),
     );

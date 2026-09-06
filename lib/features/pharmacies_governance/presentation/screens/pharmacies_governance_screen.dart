@@ -752,7 +752,7 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
       return matchGov && matchStatus && matchSearch;
     }).toList();
 
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -927,23 +927,25 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
           const SizedBox(height: 16),
 
           // List
-          Expanded(
-            child: _isLoading && _pharmacies.isEmpty
-                ? const SingleChildScrollView(child: AdminTableSkeleton(rows: 8))
-                : filtered.isEmpty
-                    ? AdminEmptyStateCard(
-                        title: _searchQuery.isNotEmpty
-                            ? 'لا توجد صيدليات مطابقة لبحث "$_searchQuery"'
-                            : 'لا توجد صيدليات في هذا القسم حالياً',
-                        description: _searchQuery.isNotEmpty
-                            ? 'تأكد من كتابة الاسم أو المحافظة بشكل صحيح، أو أعد ضبط خيارات البحث.'
-                            : 'جميع بيانات الصيدليات ومخزون الأدوية محدثة وجاهزة للرقابة.',
-                        icon: Icons.local_pharmacy_outlined,
-                        onRefresh: _fetchPharmacies,
-                      )
-                    : ListView.separated(
-                        itemCount: filtered.length,
-                        separatorBuilder: (context, index) => const SizedBox(height: 10),
+          if (_isLoading && _pharmacies.isEmpty)
+            const AdminTableSkeleton(rows: 8)
+          else if (filtered.isEmpty)
+            AdminEmptyStateCard(
+              title: _searchQuery.isNotEmpty
+                  ? 'لا توجد صيدليات مطابقة لبحث "$_searchQuery"'
+                  : 'لا توجد صيدليات في هذا القسم حالياً',
+              description: _searchQuery.isNotEmpty
+                  ? 'تأكد من كتابة الاسم أو المحافظة بشكل صحيح، أو أعد ضبط خيارات البحث.'
+                  : 'جميع بيانات الصيدليات ومخزون الأدوية محدثة وجاهزة للرقابة.',
+              icon: Icons.local_pharmacy_outlined,
+              onRefresh: _fetchPharmacies,
+            )
+          else
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: filtered.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           final pha = filtered[index];
                           final profile = pha['profiles'] as Map<String, dynamic>? ?? {};
@@ -1099,7 +1101,7 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
                           );
                         },
                       ),
-          ),
+          const SizedBox(height: 32),
         ],
       ),
     );

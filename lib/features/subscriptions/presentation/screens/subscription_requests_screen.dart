@@ -826,7 +826,7 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
       return name.contains(q) || phone.contains(q) || sender.contains(q) || ref.contains(q);
     }).toList();
 
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1010,28 +1010,28 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
           const SizedBox(height: 16),
 
           // 4. List of Requests / Empty State
-          Expanded(
-            child: _isLoading && _requests.isEmpty
-                ? const SingleChildScrollView(
-                    child: AdminTableSkeleton(rows: 6),
-                  )
-                : filtered.isEmpty
-                    ? AdminEmptyStateCard(
-                        title: 'لا توجد إيصالات في هذا القسم',
-                        description: _searchQuery.isNotEmpty
-                            ? 'لم نتمكن من العثور على أي نتائج مطابقة لكلمة البحث "$_searchQuery".'
-                            : 'لا توجد طلبات اشتراك مسجلة بحالة "${_currentStatusTab == 'PENDING' ? 'قيد المراجعة' : (_currentStatusTab == 'APPROVED' ? 'معتمدة' : 'مرفوضة')}" حالياً.',
-                        icon: Icons.receipt_long_outlined,
-                        onRefresh: _fetchRequests,
-                      )
-                    : ListView.builder(
-                        itemCount: filtered.length,
-                        itemBuilder: (context, index) {
-                          final req = filtered[index];
-                          return _buildRequestCard(req);
-                        },
-                      ),
-          ),
+          if (_isLoading && _requests.isEmpty)
+            const AdminTableSkeleton(rows: 6)
+          else if (filtered.isEmpty)
+            AdminEmptyStateCard(
+              title: 'لا توجد إيصالات في هذا القسم',
+              description: _searchQuery.isNotEmpty
+                  ? 'لم نتمكن من العثور على أي نتائج مطابقة لكلمة البحث "$_searchQuery".'
+                  : 'لا توجد طلبات اشتراك مسجلة بحالة "${_currentStatusTab == 'PENDING' ? 'قيد المراجعة' : (_currentStatusTab == 'APPROVED' ? 'معتمدة' : 'مرفوضة')}" حالياً.',
+              icon: Icons.receipt_long_outlined,
+              onRefresh: _fetchRequests,
+            )
+          else
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: filtered.length,
+              itemBuilder: (context, index) {
+                final req = filtered[index];
+                return _buildRequestCard(req);
+              },
+            ),
+          const SizedBox(height: 32),
         ],
       ),
     );

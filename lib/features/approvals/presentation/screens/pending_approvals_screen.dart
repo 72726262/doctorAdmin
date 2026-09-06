@@ -990,7 +990,7 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
       return name.contains(query) || phone.contains(query) || specialty.contains(query) || gov.contains(query);
     }).toList();
 
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1186,41 +1186,41 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
           const SizedBox(height: 16),
 
           // محتوى القائمة
-          Expanded(
-            child: _isLoading && _verificationsList.isEmpty
-                ? const SingleChildScrollView(
-                    child: AdminTableSkeleton(rows: 6),
-                  )
-                : filteredList.isEmpty
-                    ? AdminEmptyStateCard(
-                        title: _searchQuery.isNotEmpty
-                            ? 'لا توجد نتائج تطابق بحثك "$_searchQuery"'
-                            : (_selectedTabIndex == 0
-                                ? 'لا توجد طلبات اعتماد معلقة حالياً'
-                                : (_selectedTabIndex == 1
-                                    ? 'لا يوجد شركاء معتمدين في هذا القسم'
-                                    : 'لا توجد طلبات مرفوضة في هذا القسم')),
-                        description: _searchQuery.isNotEmpty
-                            ? 'تأكد من كتابة الاسم أو رقم الهاتف بشكل صحيح، أو أعد ضبط الفلاتر.'
-                            : 'جميع طلبات توثيق واعتماد الهوية للأطباء والصيدليات تم البت فيها بنجاح.',
-                        icon: _selectedTabIndex == 0
-                            ? Icons.verified_user_rounded
-                            : (_selectedTabIndex == 1
-                                ? Icons.task_alt_rounded
-                                : Icons.folder_open_rounded),
-                        onRefresh: () {
-                          _fetchVerifications();
-                          _fetchStatusCounts();
-                        },
-                      )
-                    : ListView.builder(
-                        itemCount: filteredList.length,
-                        itemBuilder: (context, index) {
-                          final item = filteredList[index];
-                          return _buildVerificationCard(item);
-                        },
-                      ),
-          ),
+          if (_isLoading && _verificationsList.isEmpty)
+            const AdminTableSkeleton(rows: 6)
+          else if (filteredList.isEmpty)
+            AdminEmptyStateCard(
+              title: _searchQuery.isNotEmpty
+                  ? 'لا توجد نتائج تطابق بحثك "$_searchQuery"'
+                  : (_selectedTabIndex == 0
+                      ? 'لا توجد طلبات اعتماد معلقة حالياً'
+                      : (_selectedTabIndex == 1
+                          ? 'لا يوجد شركاء معتمدين في هذا القسم'
+                          : 'لا توجد طلبات مرفوضة في هذا القسم')),
+              description: _searchQuery.isNotEmpty
+                  ? 'تأكد من كتابة الاسم أو رقم الهاتف بشكل صحيح، أو أعد ضبط الفلاتر.'
+                  : 'جميع طلبات توثيق واعتماد الهوية للأطباء والصيدليات تم البت فيها بنجاح.',
+              icon: _selectedTabIndex == 0
+                  ? Icons.verified_user_rounded
+                  : (_selectedTabIndex == 1
+                      ? Icons.task_alt_rounded
+                      : Icons.folder_open_rounded),
+              onRefresh: () {
+                _fetchVerifications();
+                _fetchStatusCounts();
+              },
+            )
+          else
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: filteredList.length,
+              itemBuilder: (context, index) {
+                final item = filteredList[index];
+                return _buildVerificationCard(item);
+              },
+            ),
+          const SizedBox(height: 32),
         ],
       ),
     );
