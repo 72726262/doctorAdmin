@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart' as intl;
 import 'package:doctor_admin/core/app_colors.dart';
 import 'package:doctor_admin/core/supabase_config.dart';
 import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
@@ -60,6 +61,8 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
         rating_avg,
         rating_count,
         subscription_status,
+        subscription_expires_at,
+        grace_period_ends_at,
         has_delivery,
         profiles (
           id,
@@ -127,6 +130,455 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خطأ: $e'), backgroundColor: AdminColors.emergency));
       }
     }
+  }
+
+  Map<String, dynamic> _getSubscriptionInfo(Map<String, dynamic> pha) {
+    final status = (pha['subscription_status'] as String? ?? 'INACTIVE').toUpperCase();
+    final expiresAtStr = pha['subscription_expires_at'] as String?;
+
+    if (expiresAtStr == null) {
+      return {
+        'status': status,
+        'label': 'غير محدد ⚪',
+        'badgeColor': Colors.grey.shade100,
+        'textColor': Colors.grey.shade700,
+        'borderColor': Colors.grey.shade300,
+        'expiryText': 'لا يوجد تاريخ مسجل',
+        'fullExpiryText': 'غير محدد',
+        'days': 0,
+        'isExpired': true,
+        'isExpiringSoon': false,
+      };
+    }
+
+    try {
+      final expiry = DateTime.parse(expiresAtStr).toLocal();
+      final now = DateTime.now();
+      final diff = expiry.difference(now);
+      final diffDays = diff.inDays;
+      final formattedDate = intl.DateFormat('yyyy/MM/dd').format(expiry);
+      final fullDateText = intl.DateFormat('EEEE d MMMM yyyy - hh:mm a', 'ar').format(expiry);
+
+      if (status == 'SUSPENDED' || status == 'FROZEN') {
+        return {
+          'status': status,
+          'label': 'مجمد / موقوف ⏸️',
+          'badgeColor': Colors.red.shade50,
+          'textColor': AdminColors.emergency,
+          'borderColor': Colors.red.shade200,
+          'expiryText': formattedDate,
+          'fullExpiryText': fullDateText,
+          'days': diffDays,
+          'isExpired': true,
+          'isExpiringSoon': false,
+        };
+      }
+
+      if (diff.isNegative) {
+        final passedDays = diffDays.abs();
+        return {
+          'status': 'EXPIRED',
+          'label': 'منتهي منذ $passedDays يوم 🔴',
+          'badgeColor': Colors.red.shade50,
+          'textColor': AdminColors.emergency,
+          'borderColor': Colors.red.shade200,
+          'expiryText': formattedDate,
+          'fullExpiryText': fullDateText,
+          'days': diffDays,
+          'isExpired': true,
+          'isExpiringSoon': false,
+        };
+      } else if (diffDays <= 5) {
+        return {
+          'status': 'EXPIRING_SOON',
+          'label': 'ينتهي خلال $diffDays يوم ⚠️',
+          'badgeColor': Colors.amber.shade50,
+          'textColor': Colors.amber.shade900,
+          'borderColor': Colors.amber.shade300,
+          'expiryText': formattedDate,
+          'fullExpiryText': fullDateText,
+          'days': diffDays,
+          'isExpired': false,
+          'isExpiringSoon': true,
+        };
+      } else {
+        return {
+          'status': 'ACTIVE',
+          'label': 'متبقي $diffDays يوم 🟢',
+          'badgeColor': AdminColors.accentMintLight.withValues(alpha: 0.6),
+          'textColor': AdminColors.primaryDark,
+          'borderColor': AdminColors.cardBorderMint,
+          'expiryText': formattedDate,
+          'fullExpiryText': fullDateText,
+          'days': diffDays,
+          'isExpired': false,
+          'isExpiringSoon': false,
+        };
+      }
+    } catch (_) {
+      return {
+        'status': status,
+        'label': status,
+        'badgeColor': Colors.grey.shade100,
+        'textColor': Colors.grey.shade700,
+        'borderColor': Colors.grey.shade300,
+        'expiryText': expiresAtStr,
+        'fullExpiryText': expiresAtStr,
+        'days': 0,
+        'isExpired': false,
+        'isExpiringSoon': false,
+      };
+    }
+  }
+
+  /// تمديد اشتراك الصيدلية مع توثيق العملية فوراً
+  Future<void> _extendSubscription(String pharmacyId, int days, {DateTime? exactExpiryDate, String? notes}) async {
+    try {
+      final currentPha = _pharmacies.firstWhere(
+        (p) => p['id'] == pharmacyId,
+        orElse: () => {'subscription_expires_at': null},
+      );
+      final currentExpiryStr = currentPha['subscription_expires_at'] as String?;
+      DateTime startDate = DateTime.now();
+
+      if (currentExpiryStr != null) {
+        final parsed = DateTime.tryParse(currentExpiryStr)?.toLocal();
+        if (parsed != null && parsed.isAfter(DateTime.now())) {
+          startDate = parsed;
+        }
+      }
+      final newExpiry = exactExpiryDate ?? startDate.add(Duration(days: days));
+
+      final monthsCount = (days / 30).round() == 0 ? 1 : (days / 30).round();
+      final adminNote = notes?.trim().isNotEmpty == true
+          ? notes!.trim()
+          : 'تمديد إداري استثنائي مباشر لصيدلية ($days يوم)';
+
+      await _client.from('subscription_requests').insert({
+        'user_id': pharmacyId,
+        'role': 'PHARMACY',
+        'plan_name': 'باقة الصيدليات الاحترافية',
+        'amount': 0,
+        'amount_paid': 0,
+        'months': monthsCount,
+        'payment_method': 'منحة / تمديد إداري 🛡️',
+        'status': 'APPROVED',
+        'start_date': startDate.toIso8601String(),
+        'end_date': newExpiry.toIso8601String(),
+        'reviewed_at': DateTime.now().toIso8601String(),
+        'notes': adminNote,
+      });
+
+      await _client.from('pharmacies').update({
+        'subscription_status': 'ACTIVE',
+        'subscription_expires_at': newExpiry.toIso8601String(),
+        'grace_period_ends_at': newExpiry.add(const Duration(days: 3)).toIso8601String(),
+      }).eq('id', pharmacyId);
+
+      await _client.from('profiles').update({'is_approved': true}).eq('id', pharmacyId);
+
+      AdminAuditService.log(
+        actionType: 'تمديد اشتراك صيدلية',
+        targetType: 'PHARMACY',
+        targetId: pharmacyId,
+        targetName: 'صيدلية $pharmacyId',
+        details: {
+          'days': days,
+          'start_date': startDate.toIso8601String(),
+          'end_date': newExpiry.toIso8601String(),
+          'notes': adminNote,
+        },
+      );
+
+      await _fetchPharmacies(silent: true);
+
+      if (mounted) {
+        final formattedNewExpiry = intl.DateFormat('yyyy/MM/dd').format(newExpiry);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('🎉 تم تمديد اشتراك الصيدلية لـ $days يوماً بنجاح حتى ($formattedNewExpiry)!'),
+            backgroundColor: AdminColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('خطأ أثناء التمديد: $e'), backgroundColor: AdminColors.emergency),
+        );
+      }
+    }
+  }
+
+  void _showExtendSubscriptionDialog(String phaId, String pharmacyName) {
+    final currentPha = _pharmacies.firstWhere(
+      (p) => p['id'] == phaId,
+      orElse: () => {'subscription_expires_at': null},
+    );
+    final currentExpiryStr = currentPha['subscription_expires_at'] as String?;
+    DateTime baseStartDate = DateTime.now();
+    if (currentExpiryStr != null) {
+      final parsed = DateTime.tryParse(currentExpiryStr)?.toLocal();
+      if (parsed != null && parsed.isAfter(DateTime.now())) {
+        baseStartDate = parsed;
+      }
+    }
+
+    int selectedDays = 30;
+    DateTime calculatedExpiryDate = baseStartDate.add(Duration(days: selectedDays));
+    final customDaysCtrl = TextEditingController(text: '30');
+    final notesCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final gracePeriodEnd = calculatedExpiryDate.add(const Duration(days: 3));
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AdminColors.primaryDark.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.add_card_rounded, color: AdminColors.primaryDark, size: 22),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'تمديد وتخصيص اشتراك: $pharmacyName 💳',
+                    style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 16),
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // كارت المعاينة الزمني الحي
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF0F4C3A), Color(0xFF1E6B55)],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'تاريخ انتهاء اشتراك الصيدلية الجديد:',
+                                style: GoogleFonts.cairo(color: Colors.white70, fontSize: 11.5),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AdminColors.accentMint,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  '+$selectedDays يوم',
+                                  style: GoogleFonts.cairo(
+                                    color: AdminColors.primaryDark,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            intl.DateFormat('EEEE d MMMM yyyy', 'ar').format(calculatedExpiryDate),
+                            style: GoogleFonts.cairo(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 15,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            '🛡️ فترة سماح إضافية (+3 أيام) حتى: ${intl.DateFormat('yyyy/MM/dd').format(gracePeriodEnd)}',
+                            style: GoogleFonts.cairo(color: Colors.white.withValues(alpha: 0.8), fontSize: 10.5),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 14),
+                    Text('خيارات التمديد السريع:', style: GoogleFonts.cairo(fontSize: 12.5, fontWeight: FontWeight.bold, color: AdminColors.textSecondary)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        _buildDurationChoiceChip('14 يوم', 14, selectedDays, (d) {
+                          setDialogState(() {
+                            selectedDays = d;
+                            customDaysCtrl.text = d.toString();
+                            calculatedExpiryDate = baseStartDate.add(Duration(days: d));
+                          });
+                        }),
+                        _buildDurationChoiceChip('30 يوم ⭐', 30, selectedDays, (d) {
+                          setDialogState(() {
+                            selectedDays = d;
+                            customDaysCtrl.text = d.toString();
+                            calculatedExpiryDate = baseStartDate.add(Duration(days: d));
+                          });
+                        }),
+                        _buildDurationChoiceChip('60 يوم', 60, selectedDays, (d) {
+                          setDialogState(() {
+                            selectedDays = d;
+                            customDaysCtrl.text = d.toString();
+                            calculatedExpiryDate = baseStartDate.add(Duration(days: d));
+                          });
+                        }),
+                        _buildDurationChoiceChip('90 يوم (3 أشهر)', 90, selectedDays, (d) {
+                          setDialogState(() {
+                            selectedDays = d;
+                            customDaysCtrl.text = d.toString();
+                            calculatedExpiryDate = baseStartDate.add(Duration(days: d));
+                          });
+                        }),
+                        _buildDurationChoiceChip('180 يوم (6 أشهر)', 180, selectedDays, (d) {
+                          setDialogState(() {
+                            selectedDays = d;
+                            customDaysCtrl.text = d.toString();
+                            calculatedExpiryDate = baseStartDate.add(Duration(days: d));
+                          });
+                        }),
+                        _buildDurationChoiceChip('365 يوم (سنة) 👑', 365, selectedDays, (d) {
+                          setDialogState(() {
+                            selectedDays = d;
+                            customDaysCtrl.text = d.toString();
+                            calculatedExpiryDate = baseStartDate.add(Duration(days: d));
+                          });
+                        }),
+                      ],
+                    ),
+
+                    const SizedBox(height: 14),
+                    Text('أو حدد عدد الأيام أو تاريخ الانتهاء بحرية:', style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: customDaysCtrl,
+                            keyboardType: TextInputType.number,
+                            onChanged: (val) {
+                              final parsed = int.tryParse(val.trim());
+                              if (parsed != null && parsed > 0) {
+                                setDialogState(() {
+                                  selectedDays = parsed;
+                                  calculatedExpiryDate = baseStartDate.add(Duration(days: parsed));
+                                });
+                              }
+                            },
+                            decoration: InputDecoration(
+                              suffixText: 'يوم',
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.calendar_month_rounded, size: 16, color: AdminColors.primaryDark),
+                          label: Text('من التقويم', style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: AdminColors.primaryDark)),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: calculatedExpiryDate,
+                              firstDate: DateTime.now(),
+                              lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
+                            );
+                            if (picked != null) {
+                              final diff = picked.difference(baseStartDate).inDays + 1;
+                              setDialogState(() {
+                                calculatedExpiryDate = picked;
+                                selectedDays = diff > 0 ? diff : 1;
+                                customDaysCtrl.text = selectedDays.toString();
+                              });
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 12),
+                    Text('ملاحظات التمديد الإداري (اختياري):', style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: notesCtrl,
+                      decoration: InputDecoration(
+                        hintText: 'مثال: تسوية يدوية / منحة ترويجية افتتاحية...',
+                        hintStyle: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textSecondary),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('إلغاء', style: GoogleFonts.cairo(color: Colors.grey.shade700)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AdminColors.primaryDark,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _extendSubscription(
+                    phaId,
+                    selectedDays,
+                    exactExpiryDate: calculatedExpiryDate,
+                    notes: notesCtrl.text.trim(),
+                  );
+                },
+                child: Text('تأكيد التمديد ($selectedDays يوم) ✅', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildDurationChoiceChip(String label, int days, int currentDays, Function(int) onSelect) {
+    final isSelected = currentDays == days;
+    return ChoiceChip(
+      label: Text(label, style: GoogleFonts.cairo(fontSize: 11, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+      selected: isSelected,
+      selectedColor: AdminColors.primaryDark,
+      backgroundColor: Colors.grey.shade100,
+      labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black87),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      onSelected: (_) => onSelect(days),
+    );
   }
 
   void _inspectProductsModal(Map<String, dynamic> pha) {
@@ -551,6 +1003,28 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
                                               ),
                                             ),
                                           ),
+                                          const SizedBox(width: 6),
+                                          Builder(
+                                            builder: (context) {
+                                              final subInfo = _getSubscriptionInfo(pha);
+                                              return Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: subInfo['badgeColor'],
+                                                  borderRadius: BorderRadius.circular(6),
+                                                  border: Border.all(color: subInfo['borderColor']),
+                                                ),
+                                                child: Text(
+                                                  subInfo['label'],
+                                                  style: GoogleFonts.cairo(
+                                                    fontSize: 10.5,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: subInfo['textColor'],
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                          ),
                                         ],
                                       ),
                                       const SizedBox(height: 2),
@@ -597,6 +1071,12 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.add_card_rounded, color: AdminColors.primaryDark, size: 20),
+                                      tooltip: 'تمديد وتخصيص اشتراك الصيدلية 💳',
+                                      onPressed: () => _showExtendSubscriptionDialog(pha['id'], pha['name'] ?? profile['full_name'] ?? 'الصيدلية'),
+                                    ),
+                                    const SizedBox(width: 4),
                                     IconButton(
                                       icon: const Icon(Icons.inventory_2_outlined, color: AdminColors.primaryDark, size: 20),
                                       tooltip: 'فحص كتالوج المنتجات والأدوية',
