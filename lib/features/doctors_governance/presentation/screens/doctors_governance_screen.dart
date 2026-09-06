@@ -649,280 +649,487 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
     );
   }
 
+  /// تفعيل أو تعطيل فرع عيادة محدد للطبيب مع إلزامه بالاشتراك الموحد للطبيب
+  Future<void> _toggleBranchActivation({
+    required Map<String, dynamic> branch,
+    required Map<String, dynamic> doc,
+    required Map<String, dynamic> subInfo,
+    required bool isActive,
+    required StateSetter setModalState,
+  }) async {
+    final branchId = branch['id']?.toString();
+    final branchName = branch['name'] ?? 'العيادة';
+    if (branchId == null) return;
+
+    try {
+      await _client.rpc('admin_toggle_branch_active', params: {
+        'p_branch_id': branchId,
+        'p_is_active': isActive,
+      });
+
+      AdminAuditService.log(
+        actionType: isActive ? 'تفعيل فرع عيادة' : 'إيقاف فرع عيادة',
+        targetType: 'BRANCH',
+        targetId: branchId,
+        targetName: '$branchName (طبيب: ${doc['id']})',
+        details: {
+          'is_active': isActive,
+          'doctor_subscription_expires_at': doc['subscription_expires_at'],
+        },
+      );
+
+      _fetchDoctors(silent: true);
+
+      if (mounted) {
+        final expiryNotice = subInfo['fullExpiryText'];
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 4),
+            backgroundColor: isActive ? AdminColors.success : const Color(0xFF455A64),
+            content: Row(
+              children: [
+                Icon(
+                  isActive ? Icons.check_circle_rounded : Icons.pause_circle_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    isActive
+                        ? '🟢 تم تفعيل عيادة ($branchName) بنجاح! وتنتهي مع الاشتراك الموحد للطبيب في ($expiryNotice)'
+                        : '⏸️ تم تعطيل وإيقاف عيادة ($branchName). باقي العيادات تعمل حتى موعد الاشتراك الموحد ($expiryNotice)',
+                    style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setModalState(() {
+          branch['is_active'] = !isActive;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('فشل تحديث حالة العيادة: $e'),
+            backgroundColor: AdminColors.emergency,
+          ),
+        );
+      }
+    }
+  }
+
   void _showDoctorDetailsModal(Map<String, dynamic> doc) {
     final profile = doc['profiles'] as Map<String, dynamic>? ?? {};
-    final branches = (doc['branches'] as List?) ?? [];
+    final rawBranches = (doc['branches'] as List?) ?? [];
+    final branches = rawBranches.map((b) => Map<String, dynamic>.from(b as Map)).toList();
     final isApproved = (profile['is_approved'] == true) && (doc['subscription_status'] != 'SUSPENDED' && doc['subscription_status'] != 'FROZEN');
     final subInfo = _getSubscriptionInfo(doc);
 
     showDialog(
       context: context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Container(
-          width: 650,
-          padding: const EdgeInsets.all(28),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Modal Header
-                Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 32,
-                      backgroundColor: AdminColors.primaryDark.withValues(alpha: 0.1),
-                      backgroundImage: (profile['avatar_url'] != null && profile['avatar_url'] != '')
-                          ? NetworkImage(profile['avatar_url'])
-                          : null,
-                      child: (profile['avatar_url'] == null || profile['avatar_url'] == '')
-                          ? const Icon(Icons.person, color: AdminColors.primaryDark, size: 30)
-                          : null,
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                profile['full_name'] ?? 'طبيب المنظومة',
-                                style: GoogleFonts.cairo(fontSize: 18, fontWeight: FontWeight.w900),
-                              ),
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: isApproved ? AdminColors.accentMintLight : Colors.red.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(6),
+      builder: (ctx) => StatefulBuilder(
+        builder: (dialogCtx, setModalState) => Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Container(
+            width: 700,
+            padding: const EdgeInsets.all(28),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Modal Header
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 32,
+                        backgroundColor: AdminColors.primaryDark.withValues(alpha: 0.1),
+                        backgroundImage: (profile['avatar_url'] != null && profile['avatar_url'] != '')
+                            ? NetworkImage(profile['avatar_url'])
+                            : null,
+                        child: (profile['avatar_url'] == null || profile['avatar_url'] == '')
+                            ? const Icon(Icons.person, color: AdminColors.primaryDark, size: 30)
+                            : null,
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  profile['full_name'] ?? 'طبيب المنظومة',
+                                  style: GoogleFonts.cairo(fontSize: 18, fontWeight: FontWeight.w900),
                                 ),
-                                child: Text(
-                                  isApproved ? 'معتمد 🟢' : 'مجمد / موقوف 🔴',
-                                  style: GoogleFonts.cairo(
-                                    fontSize: 11,
-                                    color: isApproved ? AdminColors.success : AdminColors.emergency,
-                                    fontWeight: FontWeight.bold,
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: isApproved ? AdminColors.accentMintLight : Colors.red.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    isApproved ? 'معتمد 🟢' : 'مجمد / موقوف 🔴',
+                                    style: GoogleFonts.cairo(
+                                      fontSize: 11,
+                                      color: isApproved ? AdminColors.success : AdminColors.emergency,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          Text(
-                            doc['specialty'] ?? 'تخصص عام',
-                            style: GoogleFonts.cairo(color: AdminColors.accentCyan, fontSize: 13, fontWeight: FontWeight.bold),
-                          ),
-                          Text(
-                            '📞 ${profile['phone'] ?? 'غير متوفر'} | 📍 ${profile['governorate'] ?? 'مصر'}',
-                            style: GoogleFonts.cairo(color: AdminColors.textSecondary, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                const Divider(),
-                const SizedBox(height: 12),
-
-                // Subscription Details Box (مع تاريخ الانتهاء والعداد الدقيق)
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AdminColors.backgroundCanvas,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AdminColors.cardBorder),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.card_membership_rounded, color: AdminColors.primaryDark, size: 20),
-                              const SizedBox(width: 6),
-                              Text('حالة اشتراك العيادة بالمنظومة:', style: GoogleFonts.cairo(fontSize: 12.5, fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: subInfo['badgeColor'],
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: subInfo['borderColor']),
+                              ],
                             ),
-                            child: Text(
-                              subInfo['label'],
-                              style: GoogleFonts.cairo(
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.bold,
-                                color: subInfo['textColor'],
-                              ),
+                            Text(
+                              doc['specialty'] ?? 'تخصص عام',
+                              style: GoogleFonts.cairo(color: AdminColors.accentCyan, fontSize: 13, fontWeight: FontWeight.bold),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'موعد انتهاء الاشتراك الدقيق: ${subInfo['fullExpiryText']}',
-                        style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.w700, color: AdminColors.textPrimary),
-                      ),
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          style: TextButton.styleFrom(
-                            backgroundColor: AdminColors.primaryDark.withValues(alpha: 0.08),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          icon: const Icon(Icons.history_rounded, size: 16, color: AdminColors.primaryDark),
-                          label: Text('عرض سجل الاشتراكات السابقة بالتفصيل (من وإلى) 📜', style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: AdminColors.primaryDark)),
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            _showDoctorSubscriptionHistoryDialog(doc);
-                          },
+                            Text(
+                              '📞 ${profile['phone'] ?? 'غير متوفر'} | 📍 ${profile['governorate'] ?? 'مصر'}',
+                              style: GoogleFonts.cairo(color: AdminColors.textSecondary, fontSize: 12),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 16),
+                  const SizedBox(height: 20),
+                  const Divider(),
+                  const SizedBox(height: 12),
 
-                // Bio
-                Text('النبذة والخبرات:', style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                Text(
-                  doc['bio'] != null && doc['bio'] != '' ? doc['bio'] : 'لا توجد نبذة مسجلة',
-                  style: GoogleFonts.cairo(fontSize: 12.5, color: AdminColors.textSecondary),
-                ),
-                const SizedBox(height: 18),
+                  // Subscription Details Box (مع تاريخ الانتهاء والعداد الدقيق)
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AdminColors.backgroundCanvas,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AdminColors.cardBorder),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.card_membership_rounded, color: AdminColors.primaryDark, size: 20),
+                                const SizedBox(width: 6),
+                                Text('حالة اشتراك العيادة بالمنظومة:', style: GoogleFonts.cairo(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: subInfo['badgeColor'],
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: subInfo['borderColor']),
+                              ),
+                              child: Text(
+                                subInfo['label'],
+                                style: GoogleFonts.cairo(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: subInfo['textColor'],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'موعد انتهاء الاشتراك الدقيق: ${subInfo['fullExpiryText']}',
+                          style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.w700, color: AdminColors.textPrimary),
+                        ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            style: TextButton.styleFrom(
+                              backgroundColor: AdminColors.primaryDark.withValues(alpha: 0.08),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            icon: const Icon(Icons.history_rounded, size: 16, color: AdminColors.primaryDark),
+                            label: Text('عرض سجل الاشتراكات السابقة بالتفصيل (من وإلى) 📜', style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: AdminColors.primaryDark)),
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              _showDoctorSubscriptionHistoryDialog(doc);
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
 
-                // Branches List
-                Text('فروع العيادات المسجلة (${branches.length} فروع):', style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                if (branches.isEmpty)
-                  Text('لا توجد فروع مسجلة لهذا الطبيب حالياً', style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textSecondary))
-                else
-                  ...branches.map((b) => Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.all(12),
+                  // Bio
+                  Text('النبذة والخبرات:', style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Text(
+                    doc['bio'] != null && doc['bio'] != '' ? doc['bio'] : 'لا توجد نبذة مسجلة',
+                    style: GoogleFonts.cairo(fontSize: 12.5, color: AdminColors.textSecondary),
+                  ),
+                  const SizedBox(height: 18),
+
+                  // Branches List Header & Counter
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'فروع العيادات المسجلة (${branches.length} فروع):',
+                        style: GoogleFonts.cairo(fontSize: 13.5, fontWeight: FontWeight.bold),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
-                          color: AdminColors.backgroundCanvas,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: AdminColors.cardBorder),
+                          color: AdminColors.primaryDark.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          'المفعلة: ${branches.where((b) => b['is_active'] as bool? ?? true).length} من ${branches.length}',
+                          style: GoogleFonts.cairo(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: AdminColors.primaryDark,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Unified Expiry Governance Notice Box
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FDF4),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFF86EFAC)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.verified_user_rounded, color: Color(0xFF16A34A), size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'قاعدة الاشتراك الموحد لكافة عيادات الطبيب ⚖️',
+                                style: GoogleFonts.cairo(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: const Color(0xFF14532D),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'كافة فروع وعيادات الطبيب مرتبطة بالاشتراك العام الموحد المنتهي في (${subInfo['fullExpiryText']}). يمكنك تفعيل أو إيقاف أي عيادة بالتبديل أدناه، وأي عيادة يتم تفعيلها لاحقاً ستنتهي حتماً في نفس موعد الاشتراك دون أي زيادة.',
+                                style: GoogleFonts.cairo(
+                                  fontSize: 11,
+                                  color: const Color(0xFF166534),
+                                  height: 1.4,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  if (branches.isEmpty)
+                    Text('لا توجد فروع مسجلة لهذا الطبيب حالياً', style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textSecondary))
+                  else
+                    ...branches.map((b) {
+                      final isActive = (b['is_active'] as bool? ?? true);
+                      final isMain = (b['is_main'] == true);
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: isActive ? const Color(0xFFF9FDFB) : AdminColors.backgroundCanvas,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isActive ? AdminColors.cardBorderMint : AdminColors.cardBorder,
+                            width: isActive ? 1.5 : 1,
+                          ),
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Text(b['name'] ?? 'الفرع', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13)),
-                                    const SizedBox(width: 8),
-                                    if (b['is_main'] == true) ...[
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFFFF8E1),
-                                          borderRadius: BorderRadius.circular(5),
-                                          border: Border.all(color: const Color(0xFFFFB300)),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const Icon(Icons.star_rounded, color: Color(0xFFFFA000), size: 12),
-                                            const SizedBox(width: 3),
-                                            Text(
-                                              'المقر الرئيسي ⭐️',
-                                              style: GoogleFonts.cairo(
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.bold,
-                                                color: const Color(0xFFB78103),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                    ],
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                                      decoration: BoxDecoration(
-                                        color: (b['is_active'] as bool? ?? true) ? AdminColors.accentMintLight : Colors.grey.shade200,
-                                        borderRadius: BorderRadius.circular(5),
-                                      ),
-                                      child: Text(
-                                        (b['is_active'] as bool? ?? true) ? '🟢 نشط ومفعل' : '⚪ معطل لعدم سداد الاشتراك',
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        b['name'] ?? 'الفرع',
                                         style: GoogleFonts.cairo(
-                                          fontSize: 10,
                                           fontWeight: FontWeight.bold,
-                                          color: (b['is_active'] as bool? ?? true) ? AdminColors.primaryDark : Colors.grey.shade700,
+                                          fontSize: 13.5,
+                                          color: isActive ? AdminColors.textPrimary : AdminColors.textSecondary,
                                         ),
                                       ),
-                                    ),
-                                  ],
-                                ),
-                                Text('📍 ${b['governorate']} - ${b['address_text']}', style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textSecondary)),
-                              ],
+                                      const SizedBox(width: 8),
+                                      if (isMain) ...[
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFFFF8E1),
+                                            borderRadius: BorderRadius.circular(5),
+                                            border: Border.all(color: const Color(0xFFFFB300)),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(Icons.star_rounded, color: Color(0xFFFFA000), size: 12),
+                                              const SizedBox(width: 3),
+                                              Text(
+                                                'المقر الرئيسي ⭐️',
+                                                style: GoogleFonts.cairo(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: const Color(0xFFB78103),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                      ],
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: isActive ? AdminColors.accentMintLight : Colors.grey.shade200,
+                                          borderRadius: BorderRadius.circular(5),
+                                        ),
+                                        child: Text(
+                                          isActive ? '🟢 نشطة وتستقبل الحجوزات' : '⚪ معطلة بالاشتراك',
+                                          style: GoogleFonts.cairo(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: isActive ? AdminColors.primaryDark : Colors.grey.shade700,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '📍 ${b['governorate']} - ${b['address_text']}',
+                                    style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textSecondary),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'السعة: ${b['max_daily_capacity'] ?? 30} كشف/يوم | الطابور: ${b['is_queue_active'] == true ? 'نشط 🟢' : 'متوقف ⏸️'}',
+                                    style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textSecondary),
+                                  ),
+                                ],
+                              ),
                             ),
+                            const SizedBox(width: 12),
+                            // Switch Control with informative status
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
-                                Text('السعة: ${b['max_daily_capacity'] ?? 30} كشف/يوم', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, color: AdminColors.primaryDark, fontSize: 12)),
-                                Text(b['is_queue_active'] == true ? 'الطابور نشط 🟢' : 'الطابور متوقف ⏸️', style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textSecondary)),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      isActive ? 'مفعلة' : 'معطلة',
+                                      style: GoogleFonts.cairo(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: isActive ? AdminColors.primaryDark : Colors.grey.shade600,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Switch(
+                                      value: isActive,
+                                      activeThumbColor: AdminColors.primaryDark,
+                                      activeTrackColor: AdminColors.accentMint,
+                                      onChanged: (newVal) {
+                                        setModalState(() {
+                                          b['is_active'] = newVal;
+                                        });
+                                        _toggleBranchActivation(
+                                          branch: b,
+                                          doc: doc,
+                                          subInfo: subInfo,
+                                          isActive: newVal,
+                                          setModalState: setModalState,
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
+                                Text(
+                                  isActive ? 'تنتهي: ${subInfo['expiryText']}' : 'انقر لتفعيل العيادة',
+                                  style: GoogleFonts.cairo(
+                                    fontSize: 10,
+                                    color: isActive ? AdminColors.accentCyan : AdminColors.textSecondary,
+                                    fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                ),
                               ],
                             ),
                           ],
                         ),
-                      )),
+                      );
+                    }),
 
-                const SizedBox(height: 24),
+                  const SizedBox(height: 24),
 
-                // Actions Bar
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      child: Text('إغلاق', style: GoogleFonts.cairo(color: AdminColors.textSecondary)),
-                    ),
-                    const SizedBox(width: 8),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AdminColors.accentCyan,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  // Actions Bar
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: Text('إغلاق', style: GoogleFonts.cairo(color: AdminColors.textSecondary)),
                       ),
-                      icon: const Icon(Icons.add_card_rounded, size: 18),
-                      label: Text('تمديد الاشتراك', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        _showExtendSubscriptionDialog(doc['id'], profile['full_name'] ?? 'الطبيب');
-                      },
-                    ),
-                    const SizedBox(width: 8),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: isApproved ? AdminColors.warning : AdminColors.success,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      const SizedBox(width: 8),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AdminColors.accentCyan,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        icon: const Icon(Icons.add_card_rounded, size: 18),
+                        label: Text('تمديد الاشتراك', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _showExtendSubscriptionDialog(doc['id'], profile['full_name'] ?? 'الطبيب');
+                        },
                       ),
-                      icon: Icon(isApproved ? Icons.pause_circle_rounded : Icons.check_circle_rounded, size: 18),
-                      label: Text(isApproved ? 'تجميد الحساب' : 'تفعيل الحساب', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        _toggleDoctorApproval(doc['id'], isApproved);
-                      },
-                    ),
-                  ],
-                ),
-              ],
+                      const SizedBox(width: 8),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isApproved ? AdminColors.warning : AdminColors.success,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        icon: Icon(isApproved ? Icons.pause_circle_rounded : Icons.check_circle_rounded, size: 18),
+                        label: Text(isApproved ? 'تجميد الحساب' : 'تفعيل الحساب', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _toggleDoctorApproval(doc['id'], isApproved);
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),

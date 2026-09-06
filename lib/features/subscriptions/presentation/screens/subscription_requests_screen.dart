@@ -244,7 +244,7 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
   }
 
   /// حوار اعتماد وتحديد تاريخ ومدة الانتهاء بدقة
-  void _showApproveDurationDialog(Map<String, dynamic> req) {
+  void _showApproveDurationDialog(Map<String, dynamic> req) async {
     final reqId = req['id'] as String;
     final userId = req['user_id'] as String;
     final profile = req['profiles'] as Map<String, dynamic>? ?? {};
@@ -257,6 +257,28 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
     final planName = (req['plan_name'] as String? ?? '').trim();
     final paymentMethod = req['payment_method'] ?? 'تحويل إلكتروني';
     final senderNumber = req['sender_number'] as String?;
+
+    // جلب كافة فروع الطبيب في حال كان المشترك طبيباً
+    List<Map<String, dynamic>> doctorBranches = [];
+    if (isDoctor) {
+      try {
+        final res = await _client
+            .from('branches')
+            .select('id, name, governorate, address_text, is_main, is_active')
+            .eq('doctor_id', userId)
+            .order('is_main', ascending: false);
+        doctorBranches = List<Map<String, dynamic>>.from(res as List);
+      } catch (_) {}
+    }
+
+    // تحديد الفروع المبدئية المختارة
+    Set<String> selectedBranchIds = {};
+    final reqBranchIds = (req['selected_branch_ids'] as List?)?.map((e) => e.toString()).toSet();
+    if (reqBranchIds != null && reqBranchIds.isNotEmpty) {
+      selectedBranchIds = Set.from(reqBranchIds);
+    } else if (doctorBranches.isNotEmpty) {
+      selectedBranchIds = doctorBranches.map((b) => b['id'].toString()).toSet();
+    }
 
     // استخراج عدد الأشهر الأصلي الذي حدده المشترك بدقة فائقة
     int requestedMonths = 1;
@@ -276,6 +298,8 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
     DateTime calculatedExpiryDate = DateTime.now().add(Duration(days: selectedDays));
     final daysCtrl = TextEditingController(text: selectedDays.toString());
     final notesCtrl = TextEditingController();
+
+    if (!mounted) return;
 
     showDialog(
       context: context,
@@ -591,29 +615,198 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
                       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     ),
                   ),
-                  if ((req['extra_branches_count'] as int? ?? 0) > 0) ...[
-                    const SizedBox(height: 12),
+                  // قسم اختيار وتحديد الفروع المراد تشغيلها وتفعيلها للاشتراك
+                  if (isDoctor && doctorBranches.isNotEmpty) ...[
+                    const SizedBox(height: 16),
                     Container(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: AdminColors.accentMintLight.withValues(alpha: 0.5),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: AdminColors.cardBorderMint),
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AdminColors.primaryDark.withValues(alpha: 0.2)),
+                        boxShadow: [
+                          BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
+                        ],
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Icon(Icons.storefront_rounded, size: 18, color: AdminColors.primaryDark),
-                              const SizedBox(width: 6),
-                              Text('تفاصيل الفروع الإضافية في هذا الطلب:', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                              Row(
+                                children: [
+                                  const Icon(Icons.storefront_rounded, size: 20, color: AdminColors.primaryDark),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'تحديد العيادات المشمولة في هذا الاشتراك:',
+                                    style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 13, color: AdminColors.textPrimary),
+                                  ),
+                                ],
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: selectedBranchIds.isNotEmpty ? AdminColors.accentMintLight : Colors.red.shade50,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  'محدد: ${selectedBranchIds.length} من أصل ${doctorBranches.length} عيادة',
+                                  style: GoogleFonts.cairo(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: selectedBranchIds.isNotEmpty ? AdminColors.primaryDark : AdminColors.emergency,
+                                  ),
+                                ),
+                              ),
                             ],
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 10),
+                          // أزرار تحديد سريعة
+                          Row(
+                            children: [
+                              InkWell(
+                                onTap: () {
+                                  setDialogState(() {
+                                    selectedBranchIds = doctorBranches.map((b) => b['id'].toString()).toSet();
+                                  });
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: selectedBranchIds.length == doctorBranches.length ? AdminColors.primaryDark : Colors.grey.shade100,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    'تحديد كافة العيادات (الكل) 🏢',
+                                    style: GoogleFonts.cairo(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: selectedBranchIds.length == doctorBranches.length ? Colors.white : Colors.grey.shade800,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              InkWell(
+                                onTap: () {
+                                  setDialogState(() {
+                                    final main = doctorBranches.firstWhere((b) => b['is_main'] == true, orElse: () => doctorBranches.first);
+                                    selectedBranchIds = {main['id'].toString()};
+                                  });
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: (selectedBranchIds.length == 1 &&
+                                            doctorBranches.any((b) => b['is_main'] == true && selectedBranchIds.contains(b['id'].toString())))
+                                        ? const Color(0xFFB78103)
+                                        : Colors.grey.shade100,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    'الفرع الرئيسي فقط ⭐️',
+                                    style: GoogleFonts.cairo(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: (selectedBranchIds.length == 1 &&
+                                              doctorBranches.any((b) => b['is_main'] == true && selectedBranchIds.contains(b['id'].toString())))
+                                          ? Colors.white
+                                          : Colors.grey.shade800,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          // قائمة الفروع مع Checkboxes
+                          ...doctorBranches.map((b) {
+                            final bId = b['id'].toString();
+                            final isChecked = selectedBranchIds.contains(bId);
+                            final isMain = b['is_main'] == true;
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              decoration: BoxDecoration(
+                                color: isChecked ? AdminColors.accentMintLight.withValues(alpha: 0.35) : Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: isChecked ? AdminColors.primaryDark.withValues(alpha: 0.3) : Colors.grey.shade200,
+                                  width: isChecked ? 1.3 : 1,
+                                ),
+                              ),
+                              child: CheckboxListTile(
+                                value: isChecked,
+                                activeColor: AdminColors.primaryDark,
+                                dense: true,
+                                controlAffinity: ListTileControlAffinity.leading,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                title: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        b['name'] ?? 'الفرع',
+                                        style: GoogleFonts.cairo(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12.5,
+                                          color: isChecked ? AdminColors.textPrimary : Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ),
+                                    if (isMain) ...[
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFFF8E1),
+                                          borderRadius: BorderRadius.circular(5),
+                                          border: Border.all(color: const Color(0xFFFFB300)),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.star_rounded, color: Color(0xFFFFA000), size: 12),
+                                            const SizedBox(width: 3),
+                                            Text(
+                                              'المقر الرئيسي',
+                                              style: GoogleFonts.cairo(fontSize: 9.5, fontWeight: FontWeight.bold, color: const Color(0xFFB78103)),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                subtitle: Text(
+                                  '📍 ${b['governorate'] ?? ''} - ${b['address_text'] ?? ''}',
+                                  style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textSecondary),
+                                ),
+                                onChanged: (val) {
+                                  setDialogState(() {
+                                    if (val == true) {
+                                      selectedBranchIds.add(bId);
+                                    } else {
+                                      if (selectedBranchIds.length > 1) {
+                                        selectedBranchIds.remove(bId);
+                                      } else {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('يجب الإبقاء على عيادة واحدة على الأقل للاشتراك'),
+                                            duration: Duration(seconds: 2),
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  });
+                                },
+                              ),
+                            );
+                          }),
+                          const SizedBox(height: 6),
                           Text(
-                            'المبلغ يشمل ${req['extra_branches_count']} فرع إضافي مسجل (+${req['extra_branches_amount']} ج.م). في حال كان المبلغ المحول في الوصل للباقة الأساسية فقط، يمكنك اختيار "اعتماد للفرع الأساسي فقط".',
-                            style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textPrimary),
+                            '💡 تنبيه الحوكمة: العيادات المحددة ستعمل فورياً وتنتهي في موعد الانتهاء الموحد (${intl.DateFormat('yyyy/MM/dd').format(calculatedExpiryDate)}). أي عيادة غير محددة ستظل معطلة في المنظومة حتى يتم تجديدها لاحقاً.',
+                            style: GoogleFonts.cairo(fontSize: 11, color: Colors.blueGrey.shade800, fontWeight: FontWeight.w600),
                           ),
                         ],
                       ),
@@ -625,46 +818,35 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: Text('إلغاء', style: GoogleFonts.cairo())),
-            if ((req['extra_branches_count'] as int? ?? 0) > 0)
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.amber.shade900,
-                  side: BorderSide(color: Colors.amber.shade700),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                ),
-                icon: const Icon(Icons.shield_outlined, size: 16),
-                label: Text('اعتماد للفرع الأساسي فقط وتعطيل الباقي ⚠️', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 11.5)),
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  _approveSubscriptionWithDays(
-                    reqId: reqId,
-                    userId: userId,
-                    days: selectedDays,
-                    exactExpiryDate: calculatedExpiryDate,
-                    adminNotes: notesCtrl.text.trim().isNotEmpty
-                        ? notesCtrl.text.trim()
-                        : 'تم اعتماد الباقة الأساسية فقط وتعطيل الفروع الإضافية لعدم اكتمال سداد رسومها',
-                    mainBranchOnly: true,
-                  );
-                },
-              ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: AdminColors.success, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10)),
-              onPressed: () {
-                Navigator.pop(ctx);
-                final branchIds = (req['selected_branch_ids'] as List?)?.map((e) => e.toString()).toList();
-                _approveSubscriptionWithDays(
-                  reqId: reqId,
-                  userId: userId,
-                  days: selectedDays,
-                  exactExpiryDate: calculatedExpiryDate,
-                  adminNotes: notesCtrl.text.trim(),
-                  mainBranchOnly: false,
-                  activeBranchIds: branchIds,
-                );
-              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: (isDoctor && selectedBranchIds.isEmpty) ? Colors.grey : AdminColors.success,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: (isDoctor && selectedBranchIds.isEmpty)
+                  ? null
+                  : () {
+                      Navigator.pop(ctx);
+                      final isMainOnly = isDoctor &&
+                          selectedBranchIds.length == 1 &&
+                          doctorBranches.any((b) => b['is_main'] == true && selectedBranchIds.contains(b['id'].toString()));
+
+                      _approveSubscriptionWithDays(
+                        reqId: reqId,
+                        userId: userId,
+                        days: selectedDays,
+                        exactExpiryDate: calculatedExpiryDate,
+                        adminNotes: notesCtrl.text.trim(),
+                        mainBranchOnly: isMainOnly,
+                        activeBranchIds: isDoctor ? selectedBranchIds.toList() : null,
+                      );
+                    },
               child: Text(
-                'تأكيد الاعتماد لكافة الفروع 🚀',
+                isDoctor && doctorBranches.length > 1
+                    ? 'تأكيد اعتماد الاشتراك (${selectedBranchIds.length} عيادة محددة) 🚀'
+                    : 'تأكيد الاعتماد وتمديد المدة 🚀',
                 style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12.5),
               ),
             ),
