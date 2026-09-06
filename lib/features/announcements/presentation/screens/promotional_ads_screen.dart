@@ -1169,6 +1169,8 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                               setDialogState(() {
                                 adType = 'DOCTOR';
                                 badgeCtrl.text = 'طبيب مميز ⭐';
+                                pickedImageBytes = null;
+                                pickedImageName = null;
                               });
                             },
                           ),
@@ -1184,6 +1186,8 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                               setDialogState(() {
                                 adType = 'PHARMACY';
                                 badgeCtrl.text = 'خصم حصري 🔥';
+                                pickedImageBytes = null;
+                                pickedImageName = null;
                               });
                             },
                           ),
@@ -1469,100 +1473,102 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                       const SizedBox(height: 18),
                     ],
 
-                    // 3. رفع صورة البنر الإعلاني من الجهاز (Upload Banner Image)
-                    Text(
-                      adType == 'GENERAL' ? '2. رفع صورة البنر الإعلاني من جهازك 🖼️:' : 'صورة مخصصة للبنر (اختياري - أو تترك لاستخدام البروفايل تلقائياً):',
-                      style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13, color: AdminColors.primaryDark),
-                    ),
-                    const SizedBox(height: 6),
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: AdminColors.backgroundCanvas,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: AdminColors.cardBorder, width: 1.2),
+                    // 2. رفع صورة البنر الإعلاني من الجهاز (حصرياً للإعلان العام / الخارجي فقط)
+                    if (adType == 'GENERAL') ...[
+                      Text(
+                        '2. رفع صورة البنر الإعلاني من جهازك 🖼️ (إجباري للإعلان العام):',
+                        style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.purple.shade800),
                       ),
-                      child: Column(
-                        children: [
-                          if (pickedImageBytes != null) ...[
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Image.memory(
-                                pickedImageBytes!,
-                                height: 160,
-                                width: double.infinity,
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    const Icon(Icons.check_circle_rounded, color: AdminColors.success, size: 18),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'تم اختيار: ${pickedImageName ?? "صورة البنر"} (${(pickedImageBytes!.lengthInBytes / 1024).toStringAsFixed(1)} KB)',
-                                      style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: AdminColors.textPrimary),
-                                    ),
-                                  ],
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.purple.shade50.withValues(alpha: 0.3),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.purple.shade300, width: 1.2),
+                        ),
+                        child: Column(
+                          children: [
+                            if (pickedImageBytes != null) ...[
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.memory(
+                                  pickedImageBytes!,
+                                  height: 160,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
                                 ),
-                                TextButton.icon(
-                                  style: TextButton.styleFrom(foregroundColor: AdminColors.emergency),
-                                  icon: const Icon(Icons.delete_outline_rounded, size: 16),
-                                  label: Text('حذف الصورة', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 11.5)),
-                                  onPressed: () {
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.check_circle_rounded, color: AdminColors.success, size: 18),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'تم اختيار: ${pickedImageName ?? "صورة البنر"} (${(pickedImageBytes!.lengthInBytes / 1024).toStringAsFixed(1)} KB)',
+                                        style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: AdminColors.textPrimary),
+                                      ),
+                                    ],
+                                  ),
+                                  TextButton.icon(
+                                    style: TextButton.styleFrom(foregroundColor: AdminColors.emergency),
+                                    icon: const Icon(Icons.delete_outline_rounded, size: 16),
+                                    label: Text('حذف واستبدال', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 11.5)),
+                                    onPressed: () {
+                                      setDialogState(() {
+                                        pickedImageBytes = null;
+                                        pickedImageName = null;
+                                      });
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ] else ...[
+                              InkWell(
+                                onTap: () async {
+                                  final picker = ImagePicker();
+                                  final XFile? file = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+                                  if (file != null) {
+                                    final bytes = await file.readAsBytes();
                                     setDialogState(() {
-                                      pickedImageBytes = null;
-                                      pickedImageName = null;
+                                      pickedImageBytes = bytes;
+                                      pickedImageName = file.name;
                                     });
-                                  },
-                                ),
-                              ],
-                            ),
-                          ] else ...[
-                            InkWell(
-                              onTap: () async {
-                                final picker = ImagePicker();
-                                final XFile? file = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
-                                if (file != null) {
-                                  final bytes = await file.readAsBytes();
-                                  setDialogState(() {
-                                    pickedImageBytes = bytes;
-                                    pickedImageName = file.name;
-                                  });
-                                }
-                              },
-                              borderRadius: BorderRadius.circular(12),
-                              child: Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(vertical: 24),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: AdminColors.primaryDark.withValues(alpha: 0.5), style: BorderStyle.solid),
-                                ),
-                                child: Column(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(color: AdminColors.primaryDark.withValues(alpha: 0.1), shape: BoxShape.circle),
-                                      child: const Icon(Icons.cloud_upload_rounded, color: AdminColors.primaryDark, size: 32),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    Text('انقر هنا لاختيار ورفع صورة البنر الإعلاني من جهازك 🖼️', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13, color: AdminColors.primaryDark)),
-                                    const SizedBox(height: 4),
-                                    Text('يدعم صيغ JPG, PNG, WebP (سيتم حفظها في الاستورج ومسحها تلقائياً عند انتهاء الإعلان)', style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textMuted)),
-                                  ],
+                                  }
+                                },
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(vertical: 24),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: Colors.purple.shade400, style: BorderStyle.solid),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(color: Colors.purple.shade100, shape: BoxShape.circle),
+                                        child: Icon(Icons.cloud_upload_rounded, color: Colors.purple.shade700, size: 32),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Text('انقر هنا لاختيار ورفع صورة البنر الإعلاني من جهازك 🖼️', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.purple.shade900)),
+                                      const SizedBox(height: 4),
+                                      Text('يدعم صيغ JPG, PNG, WebP (سيتم حفظها في الاستورج ومسحها تلقائياً عند انتهاء الإعلان)', style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textMuted)),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 18),
+                      const SizedBox(height: 18),
+                    ],
 
                     // 4. الاستهداف الجغرافي بالمحافظات
                     Row(
@@ -1825,13 +1831,26 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                           return;
                         }
 
+                        if (adType == 'GENERAL' && pickedImageBytes == null) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('يرجى اختيار ورفع صورة البنر الإعلاني من جهازك أولاً للإعلان العام 🖼️'), backgroundColor: AdminColors.warning),
+                          );
+                          return;
+                        }
+
                         setDialogState(() => isUploadingImage = true);
 
                         try {
                           String finalImageUrl = '';
 
-                          // رفع الصورة إلى Supabase Storage في bucket 'promotional_ads'
-                          if (pickedImageBytes != null) {
+                          if (adType == 'DOCTOR') {
+                            final prof = selectedDoctor!['profiles'] as Map<String, dynamic>?;
+                            finalImageUrl = prof?['avatar_url'] as String? ?? '';
+                          } else if (adType == 'PHARMACY') {
+                            final prof = selectedPharmacy!['profiles'] as Map<String, dynamic>?;
+                            finalImageUrl = prof?['avatar_url'] as String? ?? '';
+                          } else if (adType == 'GENERAL' && pickedImageBytes != null) {
+                            // رفع الصورة إلى Supabase Storage في bucket 'promotional_ads' حصرياً للإعلانات العامة
                             final ext = pickedImageName?.split('.').last.toLowerCase() ?? 'jpg';
                             final cleanExt = (ext == 'png' || ext == 'webp') ? ext : 'jpg';
                             final fileName = 'promo_${DateTime.now().millisecondsSinceEpoch}_${(1000 + (DateTime.now().microsecond % 9000))}.$cleanExt';
@@ -1843,12 +1862,6 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                             );
 
                             finalImageUrl = _client.storage.from('promotional_ads').getPublicUrl(fileName);
-                          } else if (adType == 'DOCTOR') {
-                            final prof = selectedDoctor!['profiles'] as Map<String, dynamic>?;
-                            finalImageUrl = prof?['avatar_url'] as String? ?? '';
-                          } else if (adType == 'PHARMACY') {
-                            final prof = selectedPharmacy!['profiles'] as Map<String, dynamic>?;
-                            finalImageUrl = prof?['avatar_url'] as String? ?? '';
                           }
 
                           final payload = {
