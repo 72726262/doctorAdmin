@@ -51,8 +51,10 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     super.dispose();
   }
 
-  Future<void> _loadAllSettings() async {
-    setState(() => _isLoading = true);
+  Future<void> _loadAllSettings({bool silent = false}) async {
+    if (!silent && _paymentMethods.isEmpty) {
+      setState(() => _isLoading = true);
+    }
     try {
       final methodsRes = await _client.from('payment_methods').select().order('created_at', ascending: true);
       final pricingRes = await _client.from('subscription_pricing_config').select();
@@ -145,7 +147,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   Future<void> _togglePaymentMethod(String id, bool currentStatus, String name) async {
     final nextStatus = !currentStatus;
     setState(() {
-      final index = _paymentMethods.indexWhere((pm) => pm['id'] == id);
+      final index = _paymentMethods.indexWhere((pm) => pm['id'].toString() == id);
       if (index != -1) {
         _paymentMethods[index]['is_active'] = nextStatus;
       }
@@ -172,8 +174,8 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
         );
       }
     } catch (e) {
-      _loadAllSettings();
       if (mounted) {
+        _loadAllSettings(silent: true);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خطأ: $e'), backgroundColor: AdminColors.emergency));
       }
     }
@@ -275,14 +277,18 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                   return;
                 }
 
-                final messenger = ScaffoldMessenger.of(this.context);
+                final messenger = ScaffoldMessenger.of(context);
                 Navigator.pop(ctx);
                 try {
-                  await _client.from('payment_methods').insert({
+                  final res = await _client.from('payment_methods').insert({
                     'name': name,
                     'account_details': details,
                     'instructions': instructions,
                     'is_active': true,
+                  }).select().single();
+
+                  setState(() {
+                    _paymentMethods.add(Map<String, dynamic>.from(res));
                   });
 
                   AdminAuditService.log(
@@ -292,7 +298,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                     details: {'account_details': details, 'instructions': instructions},
                   );
 
-                  _loadAllSettings();
+                  _loadAllSettings(silent: true);
                   if (mounted) {
                     messenger.showSnackBar(const SnackBar(content: Text('🎉 تمت إضافة وسيلة الدفع بنجاح!'), backgroundColor: AdminColors.success));
                   }
@@ -311,116 +317,158 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   }
 
   void _showEditPaymentMethodDialog(Map<String, dynamic> pm) {
-    final id = pm['id'] as String;
+    final id = pm['id'].toString();
     final nameController = TextEditingController(text: pm['name'] ?? '');
     final detailsController = TextEditingController(text: pm['account_details'] ?? '');
     final instructionsController = TextEditingController(text: pm['instructions'] ?? '');
+    bool isSaving = false;
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            const Icon(Icons.edit_note_rounded, color: AdminColors.primaryDark, size: 26),
-            const SizedBox(width: 8),
-            Text('تعديل وسيلة الدفع ✏️', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 16)),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.edit_note_rounded, color: AdminColors.primaryDark, size: 26),
+              const SizedBox(width: 8),
+              Text('تعديل وسيلة الدفع ✏️', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 16)),
+            ],
+          ),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    style: GoogleFonts.cairo(fontSize: 13),
+                    decoration: InputDecoration(
+                      labelText: 'اسم وسيلة الدفع *',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: detailsController,
+                    style: GoogleFonts.cairo(fontSize: 13),
+                    decoration: InputDecoration(
+                      labelText: 'بيانات الحساب / رقم المحفظة / المعرف *',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: instructionsController,
+                    style: GoogleFonts.cairo(fontSize: 13),
+                    maxLines: 2,
+                    decoration: InputDecoration(
+                      labelText: 'تعليمات التحويل للأطباء والصيدليات',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSaving ? null : () => Navigator.pop(ctx),
+              child: Text('إلغاء', style: GoogleFonts.cairo(color: Colors.grey.shade700)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AdminColors.success,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      final name = nameController.text.trim();
+                      final details = detailsController.text.trim();
+                      final instructions = instructionsController.text.trim();
+                      if (name.isEmpty || details.isEmpty) return;
+
+                      setModalState(() => isSaving = true);
+                      final messenger = ScaffoldMessenger.of(context);
+                      final oldPm = Map<String, dynamic>.from(pm);
+
+                      // 1. Optimistic Local Update immediately
+                      setState(() {
+                        final idx = _paymentMethods.indexWhere((m) => m['id'].toString() == id);
+                        if (idx != -1) {
+                          _paymentMethods[idx] = {
+                            ..._paymentMethods[idx],
+                            'name': name,
+                            'account_details': details,
+                            'instructions': instructions,
+                          };
+                        }
+                      });
+
+                      Navigator.pop(ctx);
+
+                      // 2. Persist to Supabase
+                      try {
+                        await _client.from('payment_methods').update({
+                          'name': name,
+                          'account_details': details,
+                          'instructions': instructions,
+                        }).eq('id', id);
+
+                        AdminAuditService.log(
+                          actionType: 'تعديل وسيلة دفع',
+                          targetType: 'PAYMENT_METHOD',
+                          targetId: id,
+                          targetName: name,
+                          details: {'account_details': details, 'instructions': instructions},
+                        );
+
+                        _loadAllSettings(silent: true);
+                        if (mounted) {
+                          messenger.showSnackBar(
+                            const SnackBar(
+                              content: Text('✅ تم حفظ وتحديث بيانات وسيلة الدفع بنجاح!'),
+                              backgroundColor: AdminColors.success,
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        // Rollback on error
+                        if (mounted) {
+                          setState(() {
+                            final idx = _paymentMethods.indexWhere((m) => m['id'].toString() == id);
+                            if (idx != -1) {
+                              _paymentMethods[idx] = oldPm;
+                            }
+                          });
+                          messenger.showSnackBar(
+                            SnackBar(content: Text('خطأ أثناء التعديل: $e'), backgroundColor: AdminColors.emergency),
+                          );
+                        }
+                      }
+                    },
+              child: Text(
+                isSaving ? 'جارٍ الحفظ...' : 'حفظ التعديلات ✅',
+                style: GoogleFonts.cairo(fontWeight: FontWeight.bold),
+              ),
+            ),
           ],
         ),
-        content: SizedBox(
-          width: 480,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  controller: nameController,
-                  style: GoogleFonts.cairo(fontSize: 13),
-                  decoration: InputDecoration(
-                    labelText: 'اسم وسيلة الدفع *',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: detailsController,
-                  style: GoogleFonts.cairo(fontSize: 13),
-                  decoration: InputDecoration(
-                    labelText: 'بيانات الحساب / رقم المحفظة / المعرف *',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: instructionsController,
-                  style: GoogleFonts.cairo(fontSize: 13),
-                  maxLines: 2,
-                  decoration: InputDecoration(
-                    labelText: 'تعليمات التحويل للأطباء والصيدليات',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: Text('إلغاء', style: GoogleFonts.cairo(color: Colors.grey.shade700))),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AdminColors.success,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            onPressed: () async {
-              final name = nameController.text.trim();
-              final details = detailsController.text.trim();
-              final instructions = instructionsController.text.trim();
-              if (name.isEmpty || details.isEmpty) return;
-
-              final messenger = ScaffoldMessenger.of(context);
-              Navigator.pop(ctx);
-              try {
-                await _client.from('payment_methods').update({
-                  'name': name,
-                  'account_details': details,
-                  'instructions': instructions,
-                }).eq('id', id);
-
-                AdminAuditService.log(
-                  actionType: 'تعديل وسيلة دفع',
-                  targetType: 'PAYMENT_METHOD',
-                  targetId: id,
-                  targetName: name,
-                  details: {'account_details': details, 'instructions': instructions},
-                );
-
-                _loadAllSettings();
-                if (mounted) {
-                  messenger.showSnackBar(
-                    const SnackBar(content: Text('✅ تم تحديث بيانات وسيلة الدفع بنجاح!'), backgroundColor: AdminColors.success),
-                  );
-                }
-              } catch (e) {
-                if (mounted) {
-                  messenger.showSnackBar(SnackBar(content: Text('خطأ أثناء التعديل: $e'), backgroundColor: AdminColors.emergency));
-                }
-              }
-            },
-            child: Text('حفظ التعديلات ✅', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
-          ),
-        ],
       ),
     );
   }
 
   void _confirmDeletePaymentMethod(Map<String, dynamic> pm) {
-    final id = pm['id'] as String;
+    final id = pm['id'].toString();
     final name = pm['name'] as String? ?? 'وسيلة الدفع';
 
     showDialog(
@@ -449,7 +497,13 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             ),
             onPressed: () async {
               final messenger = ScaffoldMessenger.of(context);
+              final prevList = List<Map<String, dynamic>>.from(_paymentMethods);
               Navigator.pop(ctx);
+
+              setState(() {
+                _paymentMethods.removeWhere((m) => m['id'].toString() == id);
+              });
+
               try {
                 await _client.from('payment_methods').delete().eq('id', id);
 
@@ -460,7 +514,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                   targetName: name,
                 );
 
-                _loadAllSettings();
+                _loadAllSettings(silent: true);
                 if (mounted) {
                   messenger.showSnackBar(
                     SnackBar(content: Text('🗑️ تم حذف وسيلة الدفع ($name) بنجاح'), backgroundColor: AdminColors.emergency),
@@ -468,6 +522,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                 }
               } catch (e) {
                 if (mounted) {
+                  setState(() => _paymentMethods = prevList);
                   messenger.showSnackBar(SnackBar(content: Text('خطأ أثناء الحذف: $e'), backgroundColor: AdminColors.emergency));
                 }
               }
