@@ -7,6 +7,7 @@ import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
 import 'package:doctor_admin/core/services/admin_realtime_manager.dart';
 import 'package:doctor_admin/features/queue_war_room/presentation/screens/queue_war_room_screen.dart';
 import 'package:doctor_admin/features/doctors_governance/presentation/screens/doctors_governance_screen.dart';
+import 'package:doctor_admin/features/doctor_ratings/presentation/screens/doctor_ratings_screen.dart';
 import 'package:doctor_admin/features/pharmacies_governance/presentation/screens/pharmacies_governance_screen.dart';
 import 'package:doctor_admin/features/approvals/presentation/screens/pending_approvals_screen.dart';
 import 'package:doctor_admin/features/subscriptions/presentation/screens/subscription_requests_screen.dart';
@@ -38,6 +39,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     'نظرة عامة ومؤشرات المنصة',
     'غرفة العمليات ورادار الطوابير اللحظي',
     'حوكمة وإدارة الأطباء والعيادات',
+    'إدارة تقييمات الأطباء والموصى بهم ⭐',
     'رقابة الصيدليات وتداول الروشتات',
     'طلبات الاعتماد والانضمام الجديدة',
     'إيصالات واشتراكات الأطباء',
@@ -198,26 +200,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       _buildSidebarItem(0, 'نظرة عامة ومؤشرات المنصة', Icons.dashboard_rounded),
                       _buildSidebarItem(1, 'غرفة العمليات ورادار الطوابير 📡', Icons.radar_rounded),
                       _buildSidebarItem(2, 'حوكمة الأطباء والعيادات', Icons.medical_services_rounded),
-                      _buildSidebarItem(3, 'رقابة الصيدليات وتداول الروشتات', Icons.local_pharmacy_rounded),
+                      _buildSidebarItem(3, 'إدارة تقييمات الأطباء والموصى بهم ⭐', Icons.stars_rounded),
+                      _buildSidebarItem(4, 'رقابة الصيدليات وتداول الروشتات', Icons.local_pharmacy_rounded),
                       _buildSidebarItem(
-                        4,
+                        5,
                         'طلبات الاعتماد والانضمام',
                         Icons.verified_user_rounded,
                         badgeCount: pendingApprovalsCount > 0 ? pendingApprovalsCount : null,
                         isUrgent: pendingApprovalsCount > 0,
                       ),
                       _buildSidebarItem(
-                        5,
+                        6,
                         'إيصالات واشتراكات الأطباء',
                         Icons.receipt_long_rounded,
                         badgeCount: pendingSubsCount > 0 ? pendingSubsCount : null,
                         isUrgent: pendingSubsCount > 0,
                       ),
-                      _buildSidebarItem(6, 'إدارة الإعلانات والترويج 📢', Icons.campaign_rounded),
-                      _buildSidebarItem(7, 'الإذاعة والتنبيهات العامة', Icons.notifications_active_rounded),
-                      _buildSidebarItem(8, 'الأمان وسجل العمليات 🛡️', Icons.security_rounded),
-                      _buildSidebarItem(9, 'التحليلات الاستراتيجية BI', Icons.insights_rounded),
-                      _buildSidebarItem(10, 'طرق السداد وإعدادات النظام', Icons.settings_rounded),
+                      _buildSidebarItem(7, 'إدارة الإعلانات والترويج 📢', Icons.campaign_rounded),
+                      _buildSidebarItem(8, 'الإذاعة والتنبيهات العامة', Icons.notifications_active_rounded),
+                      _buildSidebarItem(9, 'الأمان وسجل العمليات 🛡️', Icons.security_rounded),
+                      _buildSidebarItem(10, 'التحليلات الاستراتيجية BI', Icons.insights_rounded),
+                      _buildSidebarItem(11, 'طرق السداد وإعدادات النظام', Icons.settings_rounded),
                     ],
                   ),
                 ),
@@ -335,6 +338,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       _buildOverviewTab(),
                       const QueueWarRoomScreen(),
                       const DoctorsGovernanceScreen(),
+                      const DoctorRatingsScreen(),
                       const PharmaciesGovernanceScreen(),
                       const PendingApprovalsScreen(),
                       const SubscriptionRequestsScreen(),
@@ -665,7 +669,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   subtitle: 'اعتماد رخص مزاولة المهنة وكارنيهات النقابة الطبية',
                   icon: Icons.verified_user_rounded,
                   color: const Color(0xFF0F766E),
-                  onTap: () => setState(() => _selectedTabIndex = 4),
+                  onTap: () => setState(() => _selectedTabIndex = 5),
                 ),
               ),
               const SizedBox(width: 14),
@@ -675,7 +679,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   subtitle: 'تأكيد تحويلات فودافون كاش وتفعيل حسابات الأطباء',
                   icon: Icons.receipt_long_rounded,
                   color: Colors.indigo,
-                  onTap: () => setState(() => _selectedTabIndex = 5),
+                  onTap: () => setState(() => _selectedTabIndex = 6),
                 ),
               ),
             ],

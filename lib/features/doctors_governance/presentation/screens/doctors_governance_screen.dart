@@ -313,6 +313,345 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
     }
   }
 
+  /// نافذة منبثقة لتعديل تقييم الطبيب بالمنظومة
+  void _showEditDoctorRatingDialog(Map<String, dynamic> doc) {
+    final profile = doc['profiles'] as Map<String, dynamic>? ?? {};
+    final doctorName = profile['full_name'] ?? 'طبيب';
+    final doctorSpec = doc['specialty'] ?? 'تخصص عام';
+    final doctorGov = profile['governorate'] ?? 'مصر';
+    final currentRating = ((doc['rating_avg'] as num?)?.toDouble() ?? 5.0);
+    final currentCount = ((doc['rating_count'] as num?)?.toInt() ?? 50);
+
+    double tempRating = currentRating;
+    int tempCount = currentCount;
+    final countController = TextEditingController(text: tempCount.toString());
+    final ratingController = TextEditingController(text: tempRating.toStringAsFixed(1));
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              child: Container(
+                width: 600,
+                decoration: BoxDecoration(
+                  color: AdminColors.surfaceWhite,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.15),
+                      blurRadius: 28,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                      decoration: const BoxDecoration(
+                        color: AdminColors.primaryDark,
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(Icons.star_rounded, color: Colors.amber, size: 24),
+                              ),
+                              const SizedBox(width: 12),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'تعديل تقييم الطبيب ⭐',
+                                    style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15),
+                                  ),
+                                  Text(
+                                    'يؤثر هذا التقييم على صدارة الطبيب في "الأطباء الموصى بهم"',
+                                    style: GoogleFonts.cairo(color: Colors.white70, fontSize: 11.5),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                            onPressed: isSaving ? null : () => Navigator.pop(dialogCtx),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(22),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: AdminColors.backgroundCanvas,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: AdminColors.cardBorderMint),
+                              ),
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 22,
+                                    backgroundColor: AdminColors.primaryDark.withValues(alpha: 0.1),
+                                    backgroundImage: (profile['avatar_url'] != null && profile['avatar_url'] != '')
+                                        ? NetworkImage(profile['avatar_url'])
+                                        : null,
+                                    child: (profile['avatar_url'] == null || profile['avatar_url'] == '')
+                                        ? const Icon(Icons.person, color: AdminColors.primaryDark)
+                                        : null,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(doctorName, style: GoogleFonts.cairo(fontSize: 14, fontWeight: FontWeight.w900)),
+                                        Text('$doctorSpec • 📍 $doctorGov', style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textSecondary)),
+                                      ],
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.amber.withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.star_rounded, color: Colors.amber, size: 16),
+                                        const SizedBox(width: 3),
+                                        Text('${tempRating.toStringAsFixed(1)} ($tempCount)', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.amber.shade900)),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Text('أزرار سريعة للتقييم:', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [5.0, 4.9, 4.8, 4.7, 4.5, 4.0].map((val) {
+                                final isSel = (tempRating - val).abs() < 0.05;
+                                return InkWell(
+                                  onTap: () {
+                                    setModalState(() {
+                                      tempRating = val;
+                                      ratingController.text = val.toStringAsFixed(1);
+                                    });
+                                  },
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      color: isSel ? Colors.amber.shade100 : AdminColors.backgroundCanvas,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: isSel ? Colors.amber.shade700 : AdminColors.cardBorder),
+                                    ),
+                                    child: Text(
+                                      '⭐ ${val.toStringAsFixed(1)}',
+                                      style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: isSel ? FontWeight.w900 : FontWeight.w600, color: isSel ? Colors.amber.shade900 : AdminColors.textPrimary),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                            const SizedBox(height: 16),
+                            Text('الضبط الدقيق (${tempRating.toStringAsFixed(1)} ⭐):', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                            SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                activeTrackColor: Colors.amber,
+                                thumbColor: Colors.amber.shade700,
+                                overlayColor: Colors.amber.withValues(alpha: 0.2),
+                                inactiveTrackColor: Colors.amber.withValues(alpha: 0.2),
+                              ),
+                              child: Slider(
+                                value: tempRating.clamp(1.0, 5.0),
+                                min: 1.0,
+                                max: 5.0,
+                                divisions: 40,
+                                label: '${tempRating.toStringAsFixed(1)} ⭐',
+                                onChanged: (newVal) {
+                                  setModalState(() {
+                                    tempRating = double.parse(newVal.toStringAsFixed(1));
+                                    ratingController.text = tempRating.toStringAsFixed(1);
+                                  });
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('التقييم الرقمي:', style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                                      const SizedBox(height: 4),
+                                      TextField(
+                                        controller: ratingController,
+                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                        style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13),
+                                        decoration: InputDecoration(
+                                          prefixIcon: const Icon(Icons.star_rounded, color: Colors.amber, size: 20),
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                        ),
+                                        onChanged: (v) {
+                                          final parsed = double.tryParse(v);
+                                          if (parsed != null && parsed >= 1.0 && parsed <= 5.0) {
+                                            setModalState(() => tempRating = parsed);
+                                          }
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('عدد المراجعات:', style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                                      const SizedBox(height: 4),
+                                      TextField(
+                                        controller: countController,
+                                        keyboardType: TextInputType.number,
+                                        style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13),
+                                        decoration: InputDecoration(
+                                          prefixIcon: const Icon(Icons.people_alt_rounded, color: AdminColors.primaryDark, size: 20),
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                        ),
+                                        onChanged: (v) {
+                                          final parsed = int.tryParse(v);
+                                          if (parsed != null && parsed >= 0) {
+                                            setModalState(() => tempCount = parsed);
+                                          }
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      decoration: const BoxDecoration(
+                        border: Border(top: BorderSide(color: AdminColors.cardBorder)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          TextButton(
+                            onPressed: isSaving ? null : () => Navigator.pop(dialogCtx),
+                            child: Text('إلغاء', style: GoogleFonts.cairo(color: AdminColors.textSecondary)),
+                          ),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.amber.shade700,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: isSaving
+                                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                : const Icon(Icons.save_rounded, size: 16),
+                            label: Text(
+                              isSaving ? 'جارٍ الحفظ...' : 'حفظ التقييم فوراً 💾',
+                              style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12.5),
+                            ),
+                            onPressed: isSaving
+                                ? null
+                                : () async {
+                                    final messenger = ScaffoldMessenger.of(context);
+                                    final navigator = Navigator.of(dialogCtx);
+                                    setModalState(() => isSaving = true);
+                                    try {
+                                      final finalRating = double.parse(tempRating.toStringAsFixed(2));
+                                      final finalCount = tempCount;
+
+                                      await _client.rpc('admin_update_doctor_rating', params: {
+                                        'p_doctor_id': doc['id'],
+                                        'p_rating_avg': finalRating,
+                                        'p_rating_count': finalCount,
+                                      });
+
+                                      await AdminAuditService.log(
+                                        actionType: 'UPDATE_DOCTOR_RATING',
+                                        targetType: 'DOCTOR',
+                                        targetName: doctorName,
+                                        targetId: doc['id'] as String?,
+                                        details: {
+                                          'doctor_id': doc['id'],
+                                          'doctor_name': doctorName,
+                                          'rating': finalRating,
+                                          'count': finalCount,
+                                        },
+                                      );
+
+                                      if (mounted) {
+                                        setState(() {
+                                          doc['rating_avg'] = finalRating;
+                                          doc['rating_count'] = finalCount;
+                                        });
+                                      }
+
+                                      navigator.pop();
+                                      messenger.showSnackBar(
+                                        SnackBar(
+                                          content: Text('تم تحديث تقييم $doctorName إلى $finalRating ⭐ بنجاح', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+                                          backgroundColor: AdminColors.success,
+                                        ),
+                                      );
+                                      _fetchDoctors(silent: true);
+                                    } catch (e) {
+                                      setModalState(() => isSaving = false);
+                                      messenger.showSnackBar(
+                                        SnackBar(content: Text('خطأ: $e'), backgroundColor: AdminColors.emergency),
+                                      );
+                                    }
+                                  },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   /// نافذة منبثقة لعرض سجل الاشتراكات التاريخي الزمني للطبيب (من تاريخ كذا إلى كذا بالتفصيل)
   void _showDoctorSubscriptionHistoryDialog(Map<String, dynamic> doc) {
     final profile = doc['profiles'] as Map<String, dynamic>? ?? {};
@@ -861,6 +1200,56 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                               _showDoctorSubscriptionHistoryDialog(doc);
                             },
                           ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // تقييم الطبيب وحوكمة التوصيات ⭐
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.star_rounded, color: Colors.amber, size: 28),
+                            const SizedBox(width: 10),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'تقييم الطبيب بالمنظومة ⭐',
+                                  style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.amber.shade900),
+                                ),
+                                Text(
+                                  'المتوسط: ${((doc['rating_avg'] as num?)?.toDouble() ?? 5.0).toStringAsFixed(1)} من 5.0 • إجمالي المراجعات: ${doc['rating_count'] ?? 0}',
+                                  style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textPrimary),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.amber.shade700,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          icon: const Icon(Icons.edit_rounded, size: 15),
+                          label: Text('تعديل التقييم ⭐', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12)),
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _showEditDoctorRatingDialog(doc);
+                          },
                         ),
                       ],
                     ),
@@ -1720,6 +2109,34 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                                         '${doc['specialty'] ?? 'تخصص عام'} • 📍 ${profile['governorate'] ?? 'مصر'} • 📞 ${profile['phone'] ?? 'بدون هاتف'}',
                                         style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textSecondary),
                                       ),
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: Colors.amber.withValues(alpha: 0.15),
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                const Icon(Icons.star_rounded, color: Colors.amber, size: 14),
+                                                const SizedBox(width: 3),
+                                                Text(
+                                                  '${((doc['rating_avg'] as num?)?.toDouble() ?? 5.0).toStringAsFixed(1)} (${doc['rating_count'] ?? 0} تقييم)',
+                                                  style: GoogleFonts.cairo(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.amber.shade900,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -1782,6 +2199,14 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                                       icon: const Icon(Icons.history_edu_rounded, color: AdminColors.primaryDark, size: 22),
                                       tooltip: 'عرض سجل الاشتراكات التاريخي (من وإلى)',
                                       onPressed: () => _showDoctorSubscriptionHistoryDialog(doc),
+                                    ),
+                                    const SizedBox(width: 4),
+
+                                    // زر تعديل تقييم الطبيب ⭐
+                                    IconButton(
+                                      icon: const Icon(Icons.star_rounded, color: Colors.amber, size: 22),
+                                      tooltip: 'تعديل تقييم الطبيب وحوكمة الموصى بهم ⭐',
+                                      onPressed: () => _showEditDoctorRatingDialog(doc),
                                     ),
                                     const SizedBox(width: 4),
 
