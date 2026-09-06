@@ -3,6 +3,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart' as intl;
 import 'package:doctor_admin/core/app_colors.dart';
 import 'package:doctor_admin/core/supabase_config.dart';
+import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
+import 'package:doctor_admin/core/services/admin_realtime_manager.dart';
+import 'package:doctor_admin/core/services/admin_audit_service.dart';
 
 class SubscriptionRequestsScreen extends StatefulWidget {
   const SubscriptionRequestsScreen({super.key});
@@ -14,8 +17,11 @@ class SubscriptionRequestsScreen extends StatefulWidget {
 class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
     with SingleTickerProviderStateMixin {
   final _client = AdminSupabaseConfig.client;
+  final _realtimeManager = AdminRealtimeManager();
   late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
+
+  static final Map<String, List<Map<String, dynamic>>> _cache = {};
 
   bool _isLoading = true;
   String _searchQuery = '';
@@ -27,14 +33,35 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
-        _fetchRequests();
+        _onFilterChanged();
       }
     });
-    _fetchRequests();
+
+    _realtimeManager.addSubscriptionListener(_onRealtimeSubscription);
+    _onFilterChanged();
+  }
+
+  void _onFilterChanged() {
+    if (_cache.containsKey(_currentStatusTab) && _cache[_currentStatusTab]!.isNotEmpty) {
+      setState(() {
+        _requests = _cache[_currentStatusTab]!;
+        _isLoading = false;
+      });
+      _fetchRequests(silent: true);
+    } else {
+      _fetchRequests(silent: false);
+    }
+  }
+
+  void _onRealtimeSubscription() {
+    if (mounted) {
+      _fetchRequests(silent: true);
+    }
   }
 
   @override
   void dispose() {
+    _realtimeManager.removeSubscriptionListener(_onRealtimeSubscription);
     _tabController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -53,8 +80,10 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
     }
   }
 
-  Future<void> _fetchRequests() async {
-    setState(() => _isLoading = true);
+  Future<void> _fetchRequests({bool silent = false}) async {
+    if (!silent && _requests.isEmpty) {
+      setState(() => _isLoading = true);
+    }
     try {
       final res = await _client.from('subscription_requests').select('''
         id,
@@ -68,6 +97,11 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
         payment_method,
         receipt_image_url,
         status,
+        start_date,
+        end_date,
+        extra_branches_count,
+        extra_branches_amount,
+        selected_branch_ids,
         notes,
         rejection_reason,
         created_at,
@@ -83,8 +117,10 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
       ''').eq('status', _currentStatusTab).order('created_at', ascending: false);
 
       if (mounted) {
+        final list = List<Map<String, dynamic>>.from(res as List);
         setState(() {
-          _requests = List<Map<String, dynamic>>.from(res as List);
+          _requests = list;
+          _cache[_currentStatusTab] = list;
           _isLoading = false;
         });
       }
@@ -101,6 +137,8 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
     required int days,
     DateTime? exactExpiryDate,
     String? adminNotes,
+    bool mainBranchOnly = false,
+    List<String>? activeBranchIds,
   }) async {
     // 1. تحديث لحظي في الذاكرة فوراً لسرعة وسلاسة الواجهة
     final previousList = List<Map<String, dynamic>>.from(_requests);
@@ -112,11 +150,15 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
         ? intl.DateFormat('yyyy/MM/dd').format(exactExpiryDate)
         : intl.DateFormat('yyyy/MM/dd').format(DateTime.now().add(Duration(days: days)));
 
+    final successMsg = mainBranchOnly
+        ? '⚠️ تم اعتماد الباقة للفرع الأساسي فقط وتعطيل الفروع الإضافية حتى ($targetDateStr)'
+        : '🎉 تم اعتماد الإيصال وتمديد الاشتراك حتى ($targetDateStr) بنجاح!';
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('🎉 تم اعتماد الإيصال وتمديد الاشتراك حتى ($targetDateStr) بنجاح!'),
-        backgroundColor: AdminColors.success,
-        duration: const Duration(seconds: 3),
+        content: Text(successMsg),
+        backgroundColor: mainBranchOnly ? AdminColors.warning : AdminColors.success,
+        duration: const Duration(seconds: 4),
       ),
     );
 
@@ -127,8 +169,22 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
         'p_days': days,
         'p_admin_notes': adminNotes,
         'p_exact_expiry_date': exactExpiryDate?.toIso8601String(),
+        'p_active_branch_ids': activeBranchIds,
+        'p_main_branch_only': mainBranchOnly,
       });
       debugPrint('Approval result: $res');
+
+      AdminAuditService.log(
+        actionType: 'اعتماد سداد وتمديد اشتراك',
+        targetType: 'SUBSCRIPTION',
+        targetId: reqId,
+        targetName: 'اشتراك $userId',
+        details: {
+          'days': days,
+          'expiry': targetDateStr,
+          'notes': adminNotes,
+        },
+      );
     } catch (e) {
       debugPrint('Fallback manual update: $e');
       try {
@@ -136,6 +192,8 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
         await _client.from('subscription_requests').update({
           'status': 'APPROVED',
           'reviewed_at': DateTime.now().toIso8601String(),
+          'start_date': DateTime.now().toIso8601String(),
+          'end_date': expiresAt,
           'notes': adminNotes,
         }).eq('id', reqId);
 
@@ -361,27 +419,81 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
                       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     ),
                   ),
+                  if ((req['extra_branches_count'] as int? ?? 0) > 0) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AdminColors.accentMintLight.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AdminColors.cardBorderMint),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.storefront_rounded, size: 18, color: AdminColors.primaryDark),
+                              const SizedBox(width: 6),
+                              Text('تفاصيل الفروع الإضافية في هذا الطلب:', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'المبلغ يشمل ${req['extra_branches_count']} فرع إضافي مسجل (+${req['extra_branches_amount']} ج.م). في حال كان المبلغ المحول في الوصل للباقة الأساسية فقط، يمكنك اختيار "اعتماد للفرع الأساسي فقط".',
+                            style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textPrimary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: Text('إلغاء', style: GoogleFonts.cairo())),
+            if ((req['extra_branches_count'] as int? ?? 0) > 0)
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.amber.shade900,
+                  side: BorderSide(color: Colors.amber.shade700),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                ),
+                icon: const Icon(Icons.shield_outlined, size: 16),
+                label: Text('اعتماد للفرع الأساسي فقط وتعطيل الباقي ⚠️', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 11.5)),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _approveSubscriptionWithDays(
+                    reqId: reqId,
+                    userId: userId,
+                    days: selectedDays,
+                    exactExpiryDate: calculatedExpiryDate,
+                    adminNotes: notesCtrl.text.trim().isNotEmpty
+                        ? notesCtrl.text.trim()
+                        : 'تم اعتماد الباقة الأساسية فقط وتعطيل الفروع الإضافية لعدم اكتمال سداد رسومها',
+                    mainBranchOnly: true,
+                  );
+                },
+              ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: AdminColors.success, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12)),
+              style: ElevatedButton.styleFrom(backgroundColor: AdminColors.success, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10)),
               onPressed: () {
                 Navigator.pop(ctx);
+                final branchIds = (req['selected_branch_ids'] as List?)?.map((e) => e.toString()).toList();
                 _approveSubscriptionWithDays(
                   reqId: reqId,
                   userId: userId,
                   days: selectedDays,
                   exactExpiryDate: calculatedExpiryDate,
                   adminNotes: notesCtrl.text.trim(),
+                  mainBranchOnly: false,
+                  activeBranchIds: branchIds,
                 );
               },
               child: Text(
-                'تأكيد الاعتماد حتى (${intl.DateFormat('yyyy/MM/dd').format(calculatedExpiryDate)}) 🚀',
-                style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13),
+                'تأكيد الاعتماد لكافة الفروع 🚀',
+                style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12.5),
               ),
             ),
           ],
@@ -444,9 +556,21 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
                   'rejection_reason': reason,
                   'reviewed_at': DateTime.now().toIso8601String(),
                 }).eq('id', reqId);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('تم رفض الإيصال وحفظ السبب'), backgroundColor: AdminColors.emergency),
+
+                AdminAuditService.log(
+                  actionType: 'رفض إيصال سداد اشتراك',
+                  targetType: 'SUBSCRIPTION',
+                  targetId: reqId,
+                  targetName: 'طلب اشتراك $reqId',
+                  status: 'REJECTED',
+                  details: {'reason': reason},
                 );
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('تم رفض الإيصال وحفظ السبب'), backgroundColor: AdminColors.emergency),
+                  );
+                }
               } catch (e) {
                 if (mounted) setState(() => _requests = previousList);
               }
@@ -492,7 +616,7 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
                     child: Image.network(
                       receiptUrl,
                       fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => Container(
+                      errorBuilder: (ctx, err, stack) => Container(
                         padding: const EdgeInsets.all(40),
                         color: Colors.grey.shade100,
                         child: const Center(child: Text('تعذر تحميل الصورة')),
@@ -615,8 +739,10 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
 
           // List
           Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
+            child: _isLoading && _requests.isEmpty
+                ? const SingleChildScrollView(
+                    child: AdminTableSkeleton(rows: 6),
+                  )
                 : filtered.isEmpty
                     ? Center(
                         child: Text('لا توجد طلبات اشتراك في هذا القسم حالياً', style: GoogleFonts.cairo(fontSize: 14, color: AdminColors.textSecondary)),
@@ -696,6 +822,35 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
           ),
           const SizedBox(height: 12),
           Text('طريقة الدفع: $paymentMethod ${senderNumber != null && senderNumber.isNotEmpty ? "• من رقم: $senderNumber" : ""}', style: GoogleFonts.cairo(fontSize: 12, color: Colors.grey.shade800)),
+          if ((req['extra_branches_count'] as int? ?? 0) > 0) ...[
+            const SizedBox(height: 2),
+            Row(
+              children: [
+                const Icon(Icons.storefront_rounded, size: 14, color: AdminColors.primaryDark),
+                const SizedBox(width: 4),
+                Text(
+                  'يشمل ${req['extra_branches_count']} فرع إضافي (+${req['extra_branches_amount']} ج.م)',
+                  style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: AdminColors.primaryDark),
+                ),
+              ],
+            ),
+          ],
+          if (req['start_date'] != null && req['end_date'] != null) ...[
+            Builder(builder: (context) {
+              final s = DateTime.tryParse(req['start_date'])?.toLocal();
+              final e = DateTime.tryParse(req['end_date'])?.toLocal();
+              if (s != null && e != null) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    'الفترة المعتمدة: من ${intl.DateFormat('yyyy/MM/dd').format(s)} إلى ${intl.DateFormat('yyyy/MM/dd').format(e)}',
+                    style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: AdminColors.primaryDark),
+                  ),
+                );
+              }
+              return const SizedBox.shrink();
+            }),
+          ],
           Text('تاريخ الإرسال: $formattedDate', style: GoogleFonts.cairo(fontSize: 11, color: Colors.grey)),
           const SizedBox(height: 14),
           const Divider(height: 1),

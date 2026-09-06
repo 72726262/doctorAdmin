@@ -1,4 +1,5 @@
 # Miscellaneous
+web_server.js
 *.class
 *.log
 *.pyc

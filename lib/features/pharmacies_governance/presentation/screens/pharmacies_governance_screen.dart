@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:doctor_admin/core/app_colors.dart';
 import 'package:doctor_admin/core/supabase_config.dart';
+import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
+import 'package:doctor_admin/core/services/admin_realtime_manager.dart';
+import 'package:doctor_admin/core/services/admin_audit_service.dart';
 
 class PharmaciesGovernanceScreen extends StatefulWidget {
   const PharmaciesGovernanceScreen({super.key});
@@ -12,6 +15,10 @@ class PharmaciesGovernanceScreen extends StatefulWidget {
 
 class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen> {
   final _client = AdminSupabaseConfig.client;
+  final _realtimeManager = AdminRealtimeManager();
+
+  static List<Map<String, dynamic>>? _cachedPharmacies;
+
   bool _isLoading = true;
   List<Map<String, dynamic>> _pharmacies = [];
   String _searchQuery = '';
@@ -21,11 +28,28 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
   @override
   void initState() {
     super.initState();
-    _fetchPharmacies();
+    if (_cachedPharmacies != null && _cachedPharmacies!.isNotEmpty) {
+      _pharmacies = _cachedPharmacies!;
+      _isLoading = false;
+    }
+    _fetchPharmacies(silent: _cachedPharmacies != null);
+    _realtimeManager.addPartnerListener(_onRealtimePartner);
   }
 
-  Future<void> _fetchPharmacies() async {
-    setState(() => _isLoading = true);
+  void _onRealtimePartner() {
+    if (mounted) _fetchPharmacies(silent: true);
+  }
+
+  @override
+  void dispose() {
+    _realtimeManager.removePartnerListener(_onRealtimePartner);
+    super.dispose();
+  }
+
+  Future<void> _fetchPharmacies({bool silent = false}) async {
+    if (!silent && _pharmacies.isEmpty) {
+      setState(() => _isLoading = true);
+    }
     try {
       final res = await _client.from('pharmacies').select('''
         id,
@@ -55,8 +79,10 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
       ''').order('rating_avg', ascending: false);
 
       if (mounted) {
+        final list = List<Map<String, dynamic>>.from(res as List);
         setState(() {
-          _pharmacies = List<Map<String, dynamic>>.from(res as List);
+          _pharmacies = list;
+          _cachedPharmacies = list;
           _isLoading = false;
         });
       }
@@ -77,7 +103,15 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
         'subscription_status': !currentStatus ? 'ACTIVE' : 'SUSPENDED'
       }).eq('id', pharmacyId);
 
-      await _fetchPharmacies();
+      await _fetchPharmacies(silent: true);
+
+      AdminAuditService.log(
+        actionType: !currentStatus ? 'تفعيل حساب صيدلية' : 'تجميد حساب صيدلية',
+        targetType: 'PHARMACY',
+        targetId: pharmacyId,
+        targetName: 'صيدلية $pharmacyId',
+        details: {'is_approved': !currentStatus},
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -352,8 +386,8 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
 
           // List
           Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator(color: AdminColors.primaryDark))
+            child: _isLoading && _pharmacies.isEmpty
+                ? const SingleChildScrollView(child: AdminTableSkeleton(rows: 8))
                 : filtered.isEmpty
                     ? Center(child: Text('لا توجد صيدليات مطابقة للبحث', style: GoogleFonts.cairo(color: AdminColors.textSecondary)))
                     : ListView.separated(

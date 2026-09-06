@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:doctor_admin/core/app_colors.dart';
 import 'package:doctor_admin/core/supabase_config.dart';
+import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
 
 class AnalyticsBiScreen extends StatefulWidget {
   const AnalyticsBiScreen({super.key});
@@ -12,6 +13,12 @@ class AnalyticsBiScreen extends StatefulWidget {
 
 class _AnalyticsBiScreenState extends State<AnalyticsBiScreen> {
   final _client = AdminSupabaseConfig.client;
+
+  static Map<String, int>? _cachedGovMap;
+  static int? _cachedDoctors;
+  static int? _cachedPharmacies;
+  static int? _cachedTickets;
+
   bool _isLoading = true;
   Map<String, int> _governorateDistribution = {};
   int _totalTickets = 0;
@@ -21,11 +28,20 @@ class _AnalyticsBiScreenState extends State<AnalyticsBiScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchBiAnalytics();
+    if (_cachedGovMap != null) {
+      _governorateDistribution = _cachedGovMap!;
+      _totalDoctors = _cachedDoctors ?? 0;
+      _totalPharmacies = _cachedPharmacies ?? 0;
+      _totalTickets = _cachedTickets ?? 0;
+      _isLoading = false;
+    }
+    _fetchBiAnalytics(silent: _cachedGovMap != null);
   }
 
-  Future<void> _fetchBiAnalytics() async {
-    setState(() => _isLoading = true);
+  Future<void> _fetchBiAnalytics({bool silent = false}) async {
+    if (!silent && _governorateDistribution.isEmpty) {
+      setState(() => _isLoading = true);
+    }
     try {
       final branchesRes = await _client.from('branches').select('governorate');
       final pharmaciesRes = await _client.from('pharmacies').select('governorate');
@@ -49,6 +65,10 @@ class _AnalyticsBiScreenState extends State<AnalyticsBiScreen> {
           _totalDoctors = (doctorsRes as List).length;
           _totalPharmacies = (pharmaciesRes as List).length;
           _totalTickets = (ticketsRes as List).length;
+          _cachedGovMap = govMap;
+          _cachedDoctors = _totalDoctors;
+          _cachedPharmacies = _totalPharmacies;
+          _cachedTickets = _totalTickets;
           _isLoading = false;
         });
       }
@@ -128,8 +148,8 @@ class _AnalyticsBiScreenState extends State<AnalyticsBiScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                if (_isLoading)
-                  const Center(child: CircularProgressIndicator(color: AdminColors.primaryDark))
+                if (_isLoading && _governorateDistribution.isEmpty)
+                  const AdminTableSkeleton(rows: 4)
                 else if (_governorateDistribution.isEmpty)
                   Center(child: Text('لا توجد بيانات جغرافية كافية حالياً', style: GoogleFonts.cairo(color: AdminColors.textSecondary)))
                 else

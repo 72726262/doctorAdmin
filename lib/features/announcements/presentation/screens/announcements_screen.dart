@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:doctor_admin/core/app_colors.dart';
 import 'package:doctor_admin/core/supabase_config.dart';
+import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
+import 'package:doctor_admin/core/services/admin_audit_service.dart';
 
 class AnnouncementsScreen extends StatefulWidget {
   const AnnouncementsScreen({super.key});
@@ -71,6 +73,13 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
       _titleController.clear();
       _contentController.clear();
       _fetchAnnouncements();
+
+      AdminAuditService.log(
+        actionType: 'بث إعلان عام في المنظومة',
+        targetType: 'ANNOUNCEMENT',
+        targetName: title,
+        details: {'target_role': _targetRole, 'content': content},
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -174,7 +183,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                       ),
                       icon: _isPublishing
-                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                          ? const SizedBox(width: 16, height: 16, child: AdminShimmerBox.circular(size: 16))
                           : const Icon(Icons.send_rounded, size: 18),
                       label: Text(_isPublishing ? 'جاري البث...' : 'بث الإعلان الآن', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
                       onPressed: _isPublishing ? null : _handlePublish,
@@ -191,8 +200,8 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
           Text('الإعلانات المبثوثة النشطة:', style: GoogleFonts.cairo(fontSize: 16, fontWeight: FontWeight.w800, color: AdminColors.textPrimary)),
           const SizedBox(height: 12),
 
-          if (_isLoading)
-            const Center(child: CircularProgressIndicator(color: AdminColors.primaryDark))
+          if (_isLoading && _announcements.isEmpty)
+            const AdminTableSkeleton(rows: 4)
           else if (_announcements.isEmpty)
             Container(
               padding: const EdgeInsets.all(20),

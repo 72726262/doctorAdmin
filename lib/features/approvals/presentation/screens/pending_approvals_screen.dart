@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:doctor_admin/core/app_colors.dart';
 import 'package:doctor_admin/core/supabase_config.dart';
+import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
+import 'package:doctor_admin/core/services/admin_realtime_manager.dart';
+import 'package:doctor_admin/core/services/admin_audit_service.dart';
 
 class PendingApprovalsScreen extends StatefulWidget {
   const PendingApprovalsScreen({super.key});
@@ -13,8 +18,11 @@ class PendingApprovalsScreen extends StatefulWidget {
 class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
     with SingleTickerProviderStateMixin {
   final _client = AdminSupabaseConfig.client;
+  final _realtimeManager = AdminRealtimeManager();
   late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
+
+  static final Map<String, List<Map<String, dynamic>>> _cache = {};
 
   String _selectedRoleFilter = 'ALL'; // 'ALL', 'doctor', 'pharmacy'
   String _searchQuery = '';
@@ -27,14 +35,36 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
-        _fetchVerifications();
+        _onFilterChanged();
       }
     });
-    _fetchVerifications();
+
+    _realtimeManager.addPartnerListener(_onRealtimePartner);
+    _onFilterChanged();
+  }
+
+  void _onFilterChanged() {
+    final cacheKey = '${_currentStatusTab}_$_selectedRoleFilter';
+    if (_cache.containsKey(cacheKey) && _cache[cacheKey]!.isNotEmpty) {
+      setState(() {
+        _verificationsList = _cache[cacheKey]!;
+        _isLoading = false;
+      });
+      _fetchVerifications(silent: true);
+    } else {
+      _fetchVerifications(silent: false);
+    }
+  }
+
+  void _onRealtimePartner() {
+    if (mounted) {
+      _fetchVerifications(silent: true);
+    }
   }
 
   @override
   void dispose() {
+    _realtimeManager.removePartnerListener(_onRealtimePartner);
     _tabController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -53,8 +83,11 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
     }
   }
 
-  Future<void> _fetchVerifications() async {
-    setState(() => _isLoading = true);
+  Future<void> _fetchVerifications({bool silent = false}) async {
+    final cacheKey = '${_currentStatusTab}_$_selectedRoleFilter';
+    if (!silent && _verificationsList.isEmpty) {
+      setState(() => _isLoading = true);
+    }
     try {
       var query = _client.from('partner_verifications').select('''
         id,
@@ -96,6 +129,7 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
       if (mounted) {
         setState(() {
           _verificationsList = list;
+          _cache[cacheKey] = list;
           _isLoading = false;
         });
       }
@@ -151,6 +185,20 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
       } else if (role == 'PHARMACY') {
         await _client.from('pharmacies').update({'subscription_status': 'ACTIVE'}).eq('id', userId);
       }
+
+      // تسجيل العملية في سجل الرقابة
+      AdminAuditService.log(
+        actionType: 'اعتماد وتفعيل شريك (KYC)',
+        targetType: role.isNotEmpty ? role : 'PARTNER',
+        targetId: userId,
+        targetName: fullName,
+        details: {
+          'verification_id': verificationId,
+          'role': role,
+          'specialty': item['specialty'],
+          'governorate': item['governorate'],
+        },
+      );
     } catch (e) {
       // في حالة الفشل نرجع الحالة السابقة
       if (mounted) {
@@ -243,6 +291,19 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
                 }).eq('id', verificationId);
 
                 await _client.from('profiles').update({'is_approved': false}).eq('id', userId);
+
+                // تسجيل الرفض في سجل الرقابة
+                AdminAuditService.log(
+                  actionType: 'رفض طلب توثيق شريك (KYC)',
+                  targetType: (item['role'] as String? ?? 'PARTNER').toUpperCase(),
+                  targetId: userId,
+                  targetName: fullName,
+                  status: 'REJECTED',
+                  details: {
+                    'verification_id': verificationId,
+                    'rejection_reason': reason,
+                  },
+                );
               } catch (e) {
                 if (mounted) {
                   setState(() => _verificationsList = previousList);
@@ -259,8 +320,75 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
     );
   }
 
-  void _showFullImage(String url, String title) {
+  final Map<String, String> _signedUrlCache = {};
+
+  Future<String> _resolveImageUrlAsync(String rawUrl) async {
+    if (rawUrl.trim().isEmpty) return '';
+    final trimmed = rawUrl.trim();
+
+    if (_signedUrlCache.containsKey(trimmed)) {
+      return _signedUrlCache[trimmed]!;
+    }
+
+    String bucket = 'identity_documents';
+    String filePath = trimmed;
+
+    if (trimmed.contains('/identity_documents/')) {
+      bucket = 'identity_documents';
+      filePath = trimmed.split('/identity_documents/').last.split('?').first;
+    } else if (trimmed.contains('/verification_docs/')) {
+      bucket = 'verification_docs';
+      filePath = trimmed.split('/verification_docs/').last.split('?').first;
+    } else if (trimmed.startsWith('id_') || (!trimmed.startsWith('http') && trimmed.endsWith('.jpg'))) {
+      bucket = 'identity_documents';
+      filePath = trimmed;
+    }
+
+    try {
+      final signed = await _client.storage.from(bucket).createSignedUrl(filePath, 1800);
+      var resolved = signed;
+      if (kIsWeb && Uri.base.scheme == 'https' && resolved.startsWith('http://178.105.236.62:8000')) {
+        resolved = resolved.replaceFirst(
+          'http://178.105.236.62:8000',
+          'https://griffin-cooling-method-ata.trycloudflare.com',
+        );
+      }
+      _signedUrlCache[trimmed] = resolved;
+      return resolved;
+    } catch (_) {
+      var direct = trimmed;
+      if (kIsWeb && Uri.base.scheme == 'https' && direct.startsWith('http://178.105.236.62:8000')) {
+        direct = direct.replaceFirst(
+          'http://178.105.236.62:8000',
+          'https://griffin-cooling-method-ata.trycloudflare.com',
+        );
+      }
+      _signedUrlCache[trimmed] = direct;
+      return direct;
+    }
+  }
+
+  String _resolveImageUrl(String rawUrl) {
+    if (rawUrl.trim().isEmpty) return '';
+    final trimmed = rawUrl.trim();
+    if (_signedUrlCache.containsKey(trimmed)) {
+      return _signedUrlCache[trimmed]!;
+    }
+    if (kIsWeb && Uri.base.scheme == 'https') {
+      if (trimmed.startsWith('http://178.105.236.62:8000')) {
+        return trimmed.replaceFirst(
+          'http://178.105.236.62:8000',
+          'https://griffin-cooling-method-ata.trycloudflare.com',
+        );
+      }
+    }
+    return trimmed;
+  }
+
+  void _showFullImage(String url, String title) async {
     if (url.trim().isEmpty) return;
+    final resolvedUrl = await _resolveImageUrlAsync(url);
+    if (!mounted) return;
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
@@ -298,9 +426,31 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
                         Text(title, style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
                       ],
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.close_rounded, color: Colors.white),
-                      onPressed: () => Navigator.pop(ctx),
+                    Row(
+                      children: [
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AdminColors.accentMint,
+                            foregroundColor: AdminColors.primaryDark,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            elevation: 0,
+                          ),
+                          icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                          label: Text('فتح المستند الأصلي ↗', style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold)),
+                          onPressed: () async {
+                            final uri = Uri.parse(resolvedUrl);
+                            if (await canLaunchUrl(uri)) {
+                              await launchUrl(uri, mode: LaunchMode.externalApplication);
+                            }
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, color: Colors.white),
+                          onPressed: () => Navigator.pop(ctx),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -313,13 +463,43 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
                     minScale: 0.5,
                     maxScale: 4.0,
                     child: Image.network(
-                      url,
+                      resolvedUrl,
                       fit: BoxFit.contain,
                       loadingBuilder: (_, child, progress) => progress == null
                           ? child
-                          : const Center(child: CircularProgressIndicator()),
-                      errorBuilder: (_, __, ___) => Center(
-                        child: Text('تعذر تحميل الصورة بدقة كاملة', style: GoogleFonts.cairo()),
+                          : const Center(
+                              child: AdminShimmerBox(
+                                width: double.infinity,
+                                height: 400,
+                                borderRadius: 12,
+                              ),
+                            ),
+                      errorBuilder: (ctx, err, stack) => Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.description_outlined, size: 48, color: AdminColors.primaryDark),
+                            const SizedBox(height: 12),
+                            Text('المستند مرفوع ومحفوظ بأمان على السيرفر ✅', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, color: AdminColors.primaryDark)),
+                            const SizedBox(height: 12),
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AdminColors.primaryDark,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              icon: const Icon(Icons.visibility_rounded, size: 18),
+                              label: Text('عرض وفحص الصورة بدقة كاملة 🔍', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13)),
+                              onPressed: () async {
+                                final uri = Uri.parse(resolvedUrl);
+                                if (await canLaunchUrl(uri)) {
+                                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                }
+                              },
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -487,8 +667,10 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
 
           // محتوى القائمة
           Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
+            child: _isLoading && _verificationsList.isEmpty
+                ? const SingleChildScrollView(
+                    child: AdminTableSkeleton(rows: 6),
+                  )
                 : filteredList.isEmpty
                     ? _buildEmptyState()
                     : ListView.builder(
@@ -776,47 +958,71 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
   }
 
   Widget _buildDocThumbnail(String url, String title) {
-    return InkWell(
-      onTap: () => _showFullImage(url, title),
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        width: 140,
-        height: 100,
-        decoration: BoxDecoration(
-          color: Colors.grey.shade100,
+    return FutureBuilder<String>(
+      future: _resolveImageUrlAsync(url),
+      builder: (context, snapshot) {
+        final resolvedUrl = snapshot.data ?? _resolveImageUrl(url);
+        return InkWell(
+          onTap: () => _showFullImage(url, title),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.grey.shade300),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Image.network(
-              url,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Center(
-                child: Icon(Icons.broken_image_rounded, color: Colors.grey.shade400, size: 30),
-              ),
+          child: Container(
+            width: 140,
+            height: 100,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.grey.shade300),
             ),
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                color: Colors.black.withValues(alpha: 0.65),
-                child: Text(
-                  title,
-                  style: GoogleFonts.cairo(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
+            clipBehavior: Clip.antiAlias,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (resolvedUrl.isNotEmpty)
+                  Image.network(
+                    resolvedUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (ctx, err, stack) => Container(
+                      color: Colors.teal.shade50,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.file_present_rounded, color: AdminColors.primaryDark, size: 28),
+                          const SizedBox(height: 4),
+                          Text('مستند مرفق 📄', style: GoogleFonts.cairo(fontSize: 10, fontWeight: FontWeight.bold, color: AdminColors.primaryDark)),
+                          Text('(اضغط للفحص)', style: GoogleFonts.cairo(fontSize: 8.5, color: Colors.grey.shade600)),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  const Center(
+                    child: AdminShimmerBox(
+                      width: double.infinity,
+                      height: double.infinity,
+                      borderRadius: 10,
+                    ),
+                  ),
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    color: Colors.black.withValues(alpha: 0.65),
+                    child: Text(
+                      title,
+                      style: GoogleFonts.cairo(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:doctor_admin/core/app_colors.dart';
 import 'package:doctor_admin/core/supabase_config.dart';
+import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
+import 'package:doctor_admin/core/services/admin_realtime_manager.dart';
+import 'package:doctor_admin/core/services/admin_audit_service.dart';
 
 class QueueWarRoomScreen extends StatefulWidget {
   const QueueWarRoomScreen({super.key});
@@ -12,6 +15,11 @@ class QueueWarRoomScreen extends StatefulWidget {
 
 class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
   final _client = AdminSupabaseConfig.client;
+  final _realtimeManager = AdminRealtimeManager();
+
+  // ذاكرة التخزين المؤقت للتحميل الفوري (0ms Cache-First)
+  static List<Map<String, dynamic>>? _cachedBranches;
+
   bool _isLoading = true;
   List<Map<String, dynamic>> _liveBranches = [];
   String _selectedGovernorate = 'الكل';
@@ -20,13 +28,41 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchLiveQueues();
+
+    // 1. استرجاع البيانات من الكاش فوراً إذا وجدت لتجنب أي شاشات بيضاء
+    if (_cachedBranches != null && _cachedBranches!.isNotEmpty) {
+      _liveBranches = _cachedBranches!;
+      _isLoading = false;
+    }
+
+    // 2. تحديث صامت وفوري من الخادم
+    _fetchLiveQueues(silent: _cachedBranches != null);
+
+    // 3. الاشتراك في البث الحي للريل تايم (< 40ms)
+    _realtimeManager.addTicketListener(_onRealtimeSignal);
+    _realtimeManager.addBranchListener(_onRealtimeSignal);
   }
 
-  Future<void> _fetchLiveQueues() async {
-    setState(() => _isLoading = true);
+  @override
+  void dispose() {
+    _realtimeManager.removeTicketListener(_onRealtimeSignal);
+    _realtimeManager.removeBranchListener(_onRealtimeSignal);
+    super.dispose();
+  }
+
+  void _onRealtimeSignal() {
+    if (mounted) {
+      _fetchLiveQueues(silent: true);
+    }
+  }
+
+  Future<void> _fetchLiveQueues({bool silent = false}) async {
+    if (!silent && _liveBranches.isEmpty) {
+      setState(() => _isLoading = true);
+    }
+
     try {
-      // 1. Fetch all branches with doctor and profile details
+      // 1. جلب بيانات الفروع والأطباء
       final branchesRes = await _client.from('branches').select('''
         id,
         doctor_id,
@@ -53,23 +89,27 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
 
       final todayStr = DateTime.now().toIso8601String().split('T')[0];
 
-      // 2. Fetch today's tickets for queue stats
+      // 2. جلب تذاكر اليوم لحساب المؤشرات الحية
       final ticketsRes = await _client
           .from('tickets')
           .select('id, branch_id, ticket_number, status')
           .eq('booking_date', todayStr);
 
       final ticketsList = List<Map<String, dynamic>>.from(ticketsRes as List);
-
       final List<Map<String, dynamic>> enriched = [];
 
       for (final b in (branchesRes as List)) {
         final branchId = b['id'];
         final branchTickets = ticketsList.where((t) => t['branch_id'] == branchId).toList();
 
-        final waitingTickets = branchTickets.where((t) => t['status'] == 'WAITING' || t['status'] == 'BOOKED').toList();
-        final inSessionTickets = branchTickets.where((t) => t['status'] == 'IN_SESSION' || t['status'] == 'CALLED').toList();
-        final completedTickets = branchTickets.where((t) => t['status'] == 'COMPLETED').toList();
+        final waitingTickets = branchTickets
+            .where((t) => t['status'] == 'WAITING' || t['status'] == 'BOOKED')
+            .toList();
+        final inSessionTickets = branchTickets
+            .where((t) => t['status'] == 'IN_SESSION' || t['status'] == 'CALLED')
+            .toList();
+        final completedTickets =
+            branchTickets.where((t) => t['status'] == 'COMPLETED').toList();
 
         int currentNumber = 0;
         if (inSessionTickets.isNotEmpty) {
@@ -106,39 +146,100 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
       if (mounted) {
         setState(() {
           _liveBranches = enriched;
+          _cachedBranches = enriched;
           _isLoading = false;
         });
       }
     } catch (e) {
+      debugPrint('Error in War Room fetch: $e');
       if (mounted) {
         setState(() => _isLoading = false);
       }
     }
   }
 
-  Future<void> _toggleBranchQueue(String branchId, bool currentStatus) async {
+  /// تبديل حالة فتح/إغلاق الطابور مع التدقيق الرقابي
+  Future<void> _toggleBranchQueue(String branchId, bool currentStatus, String branchName) async {
+    final nextStatus = !currentStatus;
+
+    // تحديث فوري لحظي في الواجهة (Optimistic UI)
+    setState(() {
+      final index = _liveBranches.indexWhere((b) => b['id'] == branchId);
+      if (index != -1) {
+        _liveBranches[index]['is_queue_active'] = nextStatus;
+      }
+    });
+
     try {
       await _client
           .from('branches')
-          .update({'is_queue_active': !currentStatus})
+          .update({'is_queue_active': nextStatus})
           .eq('id', branchId);
 
-      _fetchLiveQueues();
+      // تسجيل العملية في سجل الرقابة
+      AdminAuditService.log(
+        actionType: nextStatus ? 'فتح طابور العيادة' : 'إيقاف طابور العيادة',
+        targetType: 'BRANCH_QUEUE',
+        targetId: branchId,
+        targetName: branchName,
+        details: {'is_queue_active': nextStatus},
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(!currentStatus ? '🟢 تم فتح وتفعيل طابور العيادة' : '⏸️ تم إيقاف طابور العيادة مؤقتاً'),
-            backgroundColor: !currentStatus ? AdminColors.success : AdminColors.warning,
+            content: Text(nextStatus ? '🟢 تم فتح وتفعيل طابور العيادة' : '⏸️ تم إيقاف طابور العيادة مؤقتاً'),
+            backgroundColor: nextStatus ? AdminColors.success : AdminColors.warning,
+            duration: const Duration(seconds: 2),
           ),
         );
       }
     } catch (e) {
+      _fetchLiveQueues(silent: true);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('حدث خطأ: $e'), backgroundColor: AdminColors.emergency),
         );
       }
+    }
+  }
+
+  /// إيقاف حجز اليوم لمنع التكدس والأزمات (Emergency Booking Stop)
+  Future<void> _toggleBookingToday(String branchId, bool currentStopped, String branchName) async {
+    final nextStopped = !currentStopped;
+
+    setState(() {
+      final index = _liveBranches.indexWhere((b) => b['id'] == branchId);
+      if (index != -1) {
+        _liveBranches[index]['is_booking_stopped_today'] = nextStopped;
+      }
+    });
+
+    try {
+      await _client
+          .from('branches')
+          .update({'is_booking_stopped_today': nextStopped})
+          .eq('id', branchId);
+
+      AdminAuditService.log(
+        actionType: nextStopped ? 'تجميد الحجز اليومي لمنع التكدس' : 'إعادة فتح الحجز اليومي',
+        targetType: 'BRANCH_BOOKING',
+        targetId: branchId,
+        targetName: branchName,
+        details: {'is_booking_stopped_today': nextStopped},
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(nextStopped ? '🛑 تم تجميد الحجز لليوم في $branchName لمنع التكدس' : '✅ تم استئناف الحجز لليوم'),
+            backgroundColor: nextStopped ? AdminColors.emergency : AdminColors.success,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      _fetchLiveQueues(silent: true);
     }
   }
 
@@ -209,7 +310,7 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
                         const Icon(Icons.circle, color: AdminColors.success, size: 8),
                         const SizedBox(width: 6),
                         Text(
-                          'تحديث لحظي نشط 🟢',
+                          'تحديث لحظي نشط ⚡',
                           style: GoogleFonts.cairo(color: AdminColors.success, fontSize: 12, fontWeight: FontWeight.bold),
                         ),
                       ],
@@ -219,7 +320,7 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
                   IconButton(
                     tooltip: 'تحديث البيانات الآن',
                     icon: const Icon(Icons.refresh_rounded, color: AdminColors.primaryDark),
-                    onPressed: _fetchLiveQueues,
+                    onPressed: () => _fetchLiveQueues(),
                   ),
                 ],
               ),
@@ -314,10 +415,12 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
 
           const SizedBox(height: 16),
 
-          // Live Branches Cards Grid / List
+          // Live Branches Cards Grid / List with Zero Spinners
           Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator(color: AdminColors.primaryDark))
+            child: _isLoading && _liveBranches.isEmpty
+                ? const SingleChildScrollView(
+                    child: AdminWarRoomCardSkeleton(count: 6),
+                  )
                 : filtered.isEmpty
                     ? Center(
                         child: Column(
@@ -336,6 +439,7 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
                           final branch = filtered[index];
                           final isActive = branch['is_queue_active'] as bool;
                           final isOvercrowded = branch['is_overcrowded'] as bool;
+                          final isBookingStopped = branch['is_booking_stopped_today'] as bool;
 
                           return Container(
                             padding: const EdgeInsets.all(18),
@@ -344,15 +448,19 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(
                                 color: isOvercrowded
-                                    ? AdminColors.emergency.withValues(alpha: 0.5)
-                                    : isActive
-                                        ? AdminColors.cardBorderMint
-                                        : AdminColors.cardBorder,
-                                width: isOvercrowded ? 1.5 : 1,
+                                    ? AdminColors.emergency.withValues(alpha: 0.6)
+                                    : isBookingStopped
+                                        ? Colors.orange.withValues(alpha: 0.5)
+                                        : isActive
+                                            ? AdminColors.cardBorderMint
+                                            : AdminColors.cardBorder,
+                                width: (isOvercrowded || isBookingStopped) ? 1.5 : 1,
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.03),
+                                  color: isOvercrowded
+                                      ? AdminColors.emergency.withValues(alpha: 0.06)
+                                      : Colors.black.withValues(alpha: 0.03),
                                   blurRadius: 10,
                                   offset: const Offset(0, 4),
                                 ),
@@ -395,6 +503,34 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
                                               style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.primaryDark, fontWeight: FontWeight.bold),
                                             ),
                                           ),
+                                          if (isOvercrowded) ...[
+                                            const SizedBox(width: 6),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: AdminColors.emergency.withValues(alpha: 0.12),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                '⚠️ تكدس مرتفع',
+                                                style: GoogleFonts.cairo(fontSize: 10, color: AdminColors.emergency, fontWeight: FontWeight.bold),
+                                              ),
+                                            ),
+                                          ],
+                                          if (isBookingStopped) ...[
+                                            const SizedBox(width: 6),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: Colors.orange.withValues(alpha: 0.15),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                '🛑 الحجز مجمد اليوم',
+                                                style: GoogleFonts.cairo(fontSize: 10, color: Colors.orange.shade800, fontWeight: FontWeight.bold),
+                                              ),
+                                            ),
+                                          ],
                                         ],
                                       ),
                                       const SizedBox(height: 2),
@@ -469,13 +605,24 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
                                 ),
                                 const SizedBox(width: 14),
 
+                                // Emergency Booking Freeze Action
+                                IconButton(
+                                  tooltip: isBookingStopped ? 'استئناف الحجز لليوم' : 'تجميد الحجز لليوم لمنع التكدس',
+                                  icon: Icon(
+                                    isBookingStopped ? Icons.lock_open_rounded : Icons.lock_clock_rounded,
+                                    color: isBookingStopped ? Colors.orange : Colors.grey.shade400,
+                                  ),
+                                  onPressed: () => _toggleBookingToday(branch['id'], isBookingStopped, branch['branch_name']),
+                                ),
+                                const SizedBox(width: 8),
+
                                 // Action Switch
                                 Column(
                                   children: [
                                     Switch(
                                       value: isActive,
                                       activeTrackColor: AdminColors.success,
-                                      onChanged: (val) => _toggleBranchQueue(branch['id'], isActive),
+                                      onChanged: (val) => _toggleBranchQueue(branch['id'], isActive, branch['branch_name']),
                                     ),
                                     Text(
                                       isActive ? 'الطابور نشط' : 'الطابور معطل',

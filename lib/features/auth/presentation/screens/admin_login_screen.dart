@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:doctor_admin/core/app_colors.dart';
 import 'package:doctor_admin/core/supabase_config.dart';
+import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
 import 'package:doctor_admin/features/dashboard/presentation/screens/admin_dashboard_screen.dart';
 
 class AdminLoginScreen extends StatefulWidget {
@@ -355,13 +356,24 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                           elevation: 0,
                         ),
                         child: _isLoading
-                            ? const SizedBox(
-                                height: 22,
-                                width: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                ),
+                            ? Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const AdminShimmerBox.circular(size: 14),
+                                  const SizedBox(width: 6),
+                                  const AdminShimmerBox.circular(size: 14),
+                                  const SizedBox(width: 6),
+                                  const AdminShimmerBox.circular(size: 14),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    'جاري التحقق الفوري...',
+                                    style: GoogleFonts.cairo(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
                               )
                             : Text(
                                 'تسجيل الدخول للمنظومة 🚀',
