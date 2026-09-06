@@ -38,6 +38,34 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
     'الوادي الجديد', 'مطروح'
   ];
 
+  static String _cleanDoctorTitle(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return '';
+    var s = raw.trim();
+    while (s.startsWith('د.') || s.startsWith('د/') || s.startsWith('دكتور ') || s.startsWith('دكتور/')) {
+      if (s.startsWith('دكتور/')) {
+        s = s.substring(6).trim();
+      } else if (s.startsWith('دكتور ')) {
+        s = s.substring(7).trim();
+      } else {
+        s = s.substring(2).trim();
+      }
+    }
+    return 'د. $s';
+  }
+
+  static String _cleanDoctorSpecialty(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return 'استشاري';
+    var s = raw.trim();
+    while (s.contains('استشاري استشاري')) {
+      s = s.replaceAll('استشاري استشاري', 'استشاري');
+    }
+    while (s.contains('أخصائي أخصائي')) {
+      s = s.replaceAll('أخصائي أخصائي', 'أخصائي');
+    }
+    final prefix = (s.startsWith('استشاري') || s.startsWith('أخصائي') || s.startsWith('أستاذ')) ? '' : 'استشاري ';
+    return '$prefix$s';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1229,8 +1257,10 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                                     final prof = doc['profiles'] as Map<String, dynamic>?;
                                     final name = prof?['full_name'] ?? '';
                                     final spec = doc['specialty'] ?? '';
-                                    titleCtrl.text = 'احجز كشفك الآن مع د. $name';
-                                    subtitleCtrl.text = 'استشاري $spec - رعاية طبية متكاملة بأحدث التقنيات';
+                                    final cleanName = _cleanDoctorTitle(name);
+                                    final cleanSpec = _cleanDoctorSpecialty(spec);
+                                    titleCtrl.text = 'احجز كشفك الآن مع $cleanName';
+                                    subtitleCtrl.text = '$cleanSpec - رعاية طبية متكاملة بأحدث التقنيات';
                                   });
                                 }
                               },
@@ -1248,8 +1278,10 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                                 final prof = doc['profiles'] as Map<String, dynamic>?;
                                 final name = prof?['full_name'] ?? '';
                                 final spec = doc['specialty'] ?? '';
-                                titleCtrl.text = 'احجز كشفك الآن مع د. $name';
-                                subtitleCtrl.text = 'استشاري $spec - رعاية طبية متكاملة بأحدث التقنيات';
+                                final cleanName = _cleanDoctorTitle(name);
+                                final cleanSpec = _cleanDoctorSpecialty(spec);
+                                titleCtrl.text = 'احجز كشفك الآن مع $cleanName';
+                                subtitleCtrl.text = '$cleanSpec - رعاية طبية متكاملة بأحدث التقنيات';
                               });
                             }
                           },
@@ -1305,7 +1337,7 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text('د. $name', style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 14, color: AdminColors.textPrimary)),
+                                      Text(_cleanDoctorTitle(name), style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 14, color: AdminColors.textPrimary)),
                                       Row(
                                         children: [
                                           Text('التخصص: $spec', style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: AdminColors.primaryDark)),
@@ -1334,8 +1366,10 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                                         final prof2 = doc['profiles'] as Map<String, dynamic>?;
                                         final name2 = prof2?['full_name'] ?? '';
                                         final spec2 = doc['specialty'] ?? '';
-                                        titleCtrl.text = 'احجز كشفك الآن مع د. $name2';
-                                        subtitleCtrl.text = 'استشاري $spec2 - رعاية طبية متكاملة بأحدث التقنيات';
+                                        final cleanName2 = _cleanDoctorTitle(name2);
+                                        final cleanSpec2 = _cleanDoctorSpecialty(spec2);
+                                        titleCtrl.text = 'احجز كشفك الآن مع $cleanName2';
+                                        subtitleCtrl.text = '$cleanSpec2 - رعاية طبية متكاملة بأحدث التقنيات';
                                       });
                                     }
                                   },
