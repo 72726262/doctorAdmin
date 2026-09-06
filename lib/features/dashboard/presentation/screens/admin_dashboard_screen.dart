@@ -11,6 +11,7 @@ import 'package:doctor_admin/features/pharmacies_governance/presentation/screens
 import 'package:doctor_admin/features/approvals/presentation/screens/pending_approvals_screen.dart';
 import 'package:doctor_admin/features/subscriptions/presentation/screens/subscription_requests_screen.dart';
 import 'package:doctor_admin/features/announcements/presentation/screens/announcements_screen.dart';
+import 'package:doctor_admin/features/announcements/presentation/screens/promotional_ads_screen.dart';
 import 'package:doctor_admin/features/audit_security/presentation/screens/audit_security_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:doctor_admin/features/auth/presentation/screens/admin_login_screen.dart';
@@ -40,6 +41,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     'رقابة الصيدليات وتداول الروشتات',
     'طلبات الاعتماد والانضمام الجديدة',
     'إيصالات واشتراكات الأطباء',
+    'إدارة الإعلانات والبنرات الممولة 📢',
     'الإذاعة والتنبيهات العامة وإشعارات المنظومة',
     'الأمان ومكافحة الاحتيال وسجل العمليات',
     'التحليلات الاستراتيجية والخرائط الحرارية',
@@ -211,10 +213,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         badgeCount: pendingSubsCount > 0 ? pendingSubsCount : null,
                         isUrgent: pendingSubsCount > 0,
                       ),
-                      _buildSidebarItem(6, 'الإذاعة والتنبيهات العامة', Icons.campaign_rounded),
-                      _buildSidebarItem(7, 'الأمان وسجل العمليات 🛡️', Icons.security_rounded),
-                      _buildSidebarItem(8, 'التحليلات الاستراتيجية BI', Icons.insights_rounded),
-                      _buildSidebarItem(9, 'طرق السداد وإعدادات النظام', Icons.settings_rounded),
+                      _buildSidebarItem(6, 'إدارة الإعلانات والترويج 📢', Icons.campaign_rounded),
+                      _buildSidebarItem(7, 'الإذاعة والتنبيهات العامة', Icons.notifications_active_rounded),
+                      _buildSidebarItem(8, 'الأمان وسجل العمليات 🛡️', Icons.security_rounded),
+                      _buildSidebarItem(9, 'التحليلات الاستراتيجية BI', Icons.insights_rounded),
+                      _buildSidebarItem(10, 'طرق السداد وإعدادات النظام', Icons.settings_rounded),
                     ],
                   ),
                 ),
@@ -335,6 +338,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       const PharmaciesGovernanceScreen(),
                       const PendingApprovalsScreen(),
                       const SubscriptionRequestsScreen(),
+                      const PromotionalAdsScreen(),
                       const AnnouncementsScreen(),
                       const AuditSecurityScreen(),
                       const AnalyticsBiScreen(),
