@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:doctor_admin/core/app_colors.dart';
 import 'package:doctor_admin/core/supabase_config.dart';
 import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
+import 'package:doctor_admin/core/widgets/admin_modern_tab_bar.dart';
 import 'package:doctor_admin/core/services/admin_realtime_manager.dart';
 import 'package:doctor_admin/core/services/admin_audit_service.dart';
 
@@ -368,24 +369,25 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
             children: [
               // Search Input
               Expanded(
-                child: TextField(
-                  style: GoogleFonts.cairo(fontSize: 13),
-                  onChanged: (val) => setState(() => _searchQuery = val.trim()),
-                  decoration: InputDecoration(
-                    hintText: 'بحث باسم الطبيب، الفرع، أو التخصص...',
-                    hintStyle: GoogleFonts.cairo(fontSize: 13, color: AdminColors.textSecondary),
-                    prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AdminColors.textSecondary),
-                    filled: true,
-                    fillColor: AdminColors.surfaceWhite,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: AdminColors.cardBorder),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
+                    ],
+                  ),
+                  child: TextField(
+                    style: GoogleFonts.cairo(fontSize: 13),
+                    onChanged: (val) => setState(() => _searchQuery = val.trim()),
+                    decoration: InputDecoration(
+                      hintText: '🔍 بحث باسم الطبيب، الفرع، أو التخصص...',
+                      hintStyle: GoogleFonts.cairo(fontSize: 13, color: AdminColors.textSecondary),
+                      prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AdminColors.primaryDark),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                     ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: AdminColors.cardBorder),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   ),
                 ),
               ),
@@ -393,17 +395,20 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
 
               // Governorate Dropdown
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
                 decoration: BoxDecoration(
-                  color: AdminColors.surfaceWhite,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AdminColors.cardBorder),
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
+                  ],
                 ),
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
                     value: _selectedGovernorate,
                     style: GoogleFonts.cairo(color: AdminColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
-                    items: ['الكل', 'القاهرة', 'الجيزة', 'الإسكندرية', 'الدقهلية', 'الغربية'].map((gov) {
+                    items: ['الكل', 'القاهرة', 'الجيزة', 'الإسكندرية', 'الدقهلية', 'الغربية', 'الشرقية', 'المنوفية', 'البحيرة'].map((gov) {
                       return DropdownMenuItem(value: gov, child: Text(gov));
                     }).toList(),
                     onChanged: (val) => setState(() => _selectedGovernorate = val ?? 'الكل'),
@@ -422,15 +427,15 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
                     child: AdminWarRoomCardSkeleton(count: 6),
                   )
                 : filtered.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.radar_rounded, size: 56, color: AdminColors.textSecondary),
-                            const SizedBox(height: 12),
-                            Text('لا توجد طوابير عيادات مطابقة للبحث', style: GoogleFonts.cairo(fontSize: 15, color: AdminColors.textSecondary)),
-                          ],
-                        ),
+                    ? AdminEmptyStateCard(
+                        title: _searchQuery.isNotEmpty
+                            ? 'لا توجد طوابير عيادات مطابقة لبحث "$_searchQuery"'
+                            : 'لا توجد طوابير عيادات مسجلة حالياً',
+                        description: _searchQuery.isNotEmpty
+                            ? 'تأكد من اسم الطبيب أو العيادة أو قم باختيار محافظة أخرى.'
+                            : 'سيتم رصد أي طوابير عيادات بمجرد بدء الكشوفات اليومية.',
+                        icon: Icons.radar_rounded,
+                        onRefresh: () => _fetchLiveQueues(),
                       )
                     : ListView.separated(
                         itemCount: filtered.length,

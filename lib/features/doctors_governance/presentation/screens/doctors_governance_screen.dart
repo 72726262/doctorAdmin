@@ -4,6 +4,7 @@ import 'package:intl/intl.dart' as intl;
 import 'package:doctor_admin/core/app_colors.dart';
 import 'package:doctor_admin/core/supabase_config.dart';
 import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
+import 'package:doctor_admin/core/widgets/admin_modern_tab_bar.dart';
 import 'package:doctor_admin/core/services/admin_realtime_manager.dart';
 import 'package:doctor_admin/core/services/admin_audit_service.dart';
 
@@ -24,7 +25,7 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
   List<Map<String, dynamic>> _doctors = [];
   String _searchQuery = '';
   String _governorateFilter = 'الكل';
-  String _statusFilter = 'الكل';
+  int _selectedStatusTabIndex = 0; // 0: الكل, 1: ساري, 2: ينتهي قريباً, 3: منتهي, 4: مجمد
 
   @override
   void initState() {
@@ -1032,6 +1033,27 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    int activeCount = 0;
+    int expiringSoonCount = 0;
+    int expiredCount = 0;
+    int frozenCount = 0;
+
+    for (final d in _doctors) {
+      final profile = d['profiles'] as Map<String, dynamic>? ?? {};
+      final isApproved = (profile['is_approved'] == true) &&
+          (d['subscription_status'] != 'SUSPENDED' && d['subscription_status'] != 'FROZEN');
+      final subInfo = _getSubscriptionInfo(d);
+      if (!isApproved) {
+        frozenCount++;
+      } else if (subInfo['status'] == 'ACTIVE') {
+        activeCount++;
+      } else if (subInfo['isExpiringSoon'] == true) {
+        expiringSoonCount++;
+      } else if (subInfo['isExpired'] == true) {
+        expiredCount++;
+      }
+    }
+
     final filtered = _doctors.where((d) {
       final profile = d['profiles'] as Map<String, dynamic>? ?? {};
       final name = profile['full_name']?.toString() ?? '';
@@ -1044,16 +1066,14 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
       final matchGov = _governorateFilter == 'الكل' || gov == _governorateFilter;
 
       bool matchStatus = true;
-      if (_statusFilter == 'معتمد') {
-        matchStatus = isApproved;
-      } else if (_statusFilter == 'مجمد') {
+      if (_selectedStatusTabIndex == 1) {
+        matchStatus = isApproved && subInfo['status'] == 'ACTIVE';
+      } else if (_selectedStatusTabIndex == 2) {
+        matchStatus = isApproved && subInfo['isExpiringSoon'] == true;
+      } else if (_selectedStatusTabIndex == 3) {
+        matchStatus = isApproved && subInfo['isExpired'] == true;
+      } else if (_selectedStatusTabIndex == 4) {
         matchStatus = !isApproved;
-      } else if (_statusFilter == 'اشتراك ساري 🟢') {
-        matchStatus = subInfo['status'] == 'ACTIVE';
-      } else if (_statusFilter == 'ينتهي قريباً ⚠️') {
-        matchStatus = subInfo['isExpiringSoon'] == true;
-      } else if (_statusFilter == 'منتهي الصلاحية 🔴') {
-        matchStatus = subInfo['isExpired'] == true;
       }
 
       final matchSearch = _searchQuery.isEmpty ||
@@ -1109,25 +1129,87 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
             ],
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
+
+          // كروت المؤشرات العلوية (KPI Metric Summary Cards)
+          Row(
+            children: [
+              Expanded(
+                child: _buildKpiCard(
+                  title: 'إجمالي الأطباء',
+                  count: _doctors.length,
+                  subtitle: 'مسجلين في كافة المحافظات',
+                  icon: Icons.people_alt_rounded,
+                  color: AdminColors.primaryDark,
+                  bgColor: const Color(0xFFF0FDF4),
+                  borderColor: const Color(0xFFBBF7D0),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildKpiCard(
+                  title: 'اشتراكات سارية 🟢',
+                  count: activeCount,
+                  subtitle: 'حسابات نشطة وعيادات مفعلة',
+                  icon: Icons.check_circle_rounded,
+                  color: const Color(0xFF10B981),
+                  bgColor: const Color(0xFFECFDF5),
+                  borderColor: const Color(0xFFA7F3D0),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildKpiCard(
+                  title: 'توشك على الانتهاء ⚠️',
+                  count: expiringSoonCount,
+                  subtitle: 'متبقي 5 أيام أو أقل للتجديد',
+                  icon: Icons.hourglass_bottom_rounded,
+                  color: const Color(0xFFF59E0B),
+                  bgColor: const Color(0xFFFFFBEB),
+                  borderColor: const Color(0xFFFDE68A),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildKpiCard(
+                  title: 'منتهية ومجمدة 🔴',
+                  count: expiredCount + frozenCount,
+                  subtitle: 'تتطلب سداد الرسوم أو التفعيل',
+                  icon: Icons.pause_circle_filled_rounded,
+                  color: const Color(0xFFEF4444),
+                  bgColor: const Color(0xFFFEF2F2),
+                  borderColor: const Color(0xFFFECACA),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 18),
 
           // Search & Filters Row
           Row(
             children: [
               // Search Input
               Expanded(
-                child: TextField(
-                  style: GoogleFonts.cairo(fontSize: 13),
-                  onChanged: (val) => setState(() => _searchQuery = val.trim()),
-                  decoration: InputDecoration(
-                    hintText: 'بحث باسم الطبيب، التخصص، أو المحافظة...',
-                    hintStyle: GoogleFonts.cairo(fontSize: 13, color: AdminColors.textSecondary),
-                    prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AdminColors.textSecondary),
-                    filled: true,
-                    fillColor: AdminColors.surfaceWhite,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AdminColors.cardBorder)),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AdminColors.cardBorder)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
+                    ],
+                  ),
+                  child: TextField(
+                    style: GoogleFonts.cairo(fontSize: 13),
+                    onChanged: (val) => setState(() => _searchQuery = val.trim()),
+                    decoration: InputDecoration(
+                      hintText: '🔍 بحث باسم الطبيب، التخصص، أو المحافظة...',
+                      hintStyle: GoogleFonts.cairo(fontSize: 13, color: AdminColors.textSecondary),
+                      prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AdminColors.primaryDark),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    ),
                   ),
                 ),
               ),
@@ -1135,8 +1217,15 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
 
               // Governorate Filter
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                decoration: BoxDecoration(color: AdminColors.surfaceWhite, borderRadius: BorderRadius.circular(12), border: Border.all(color: AdminColors.cardBorder)),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
+                  ],
+                ),
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
                     value: _governorateFilter,
@@ -1146,22 +1235,22 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
-
-              // Status Filter
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                decoration: BoxDecoration(color: AdminColors.surfaceWhite, borderRadius: BorderRadius.circular(12), border: Border.all(color: AdminColors.cardBorder)),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _statusFilter,
-                    style: GoogleFonts.cairo(color: AdminColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
-                    items: ['الكل', 'اشتراك ساري 🟢', 'ينتهي قريباً ⚠️', 'منتهي الصلاحية 🔴', 'معتمد', 'مجمد'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                    onChanged: (val) => setState(() => _statusFilter = val ?? 'الكل'),
-                  ),
-                ),
-              ),
             ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // تابات الحالة العصرية (Segmented Modern Tab Bar)
+          AdminModernTabBar(
+            tabs: [
+              AdminTabItem(label: 'الكل', icon: Icons.people_alt_rounded, count: _doctors.length),
+              AdminTabItem(label: 'اشتراك ساري 🟢', icon: Icons.check_circle_rounded, count: activeCount, badgeColor: const Color(0xFF10B981)),
+              AdminTabItem(label: 'ينتهي قريباً ⚠️', icon: Icons.hourglass_bottom_rounded, count: expiringSoonCount, badgeColor: const Color(0xFFF59E0B)),
+              AdminTabItem(label: 'منتهي الصلاحية 🔴', icon: Icons.error_outline_rounded, count: expiredCount, badgeColor: const Color(0xFFEF4444)),
+              AdminTabItem(label: 'مجمد / موقوف ⏸️', icon: Icons.pause_circle_filled_rounded, count: frozenCount, badgeColor: const Color(0xFF64748B)),
+            ],
+            selectedIndex: _selectedStatusTabIndex,
+            onTabSelected: (idx) => setState(() => _selectedStatusTabIndex = idx),
           ),
 
           const SizedBox(height: 16),
@@ -1171,7 +1260,16 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
             child: _isLoading && _doctors.isEmpty
                 ? const SingleChildScrollView(child: AdminTableSkeleton(rows: 8))
                 : filtered.isEmpty
-                    ? Center(child: Text('لا يوجد أطباء مطابقين للبحث', style: GoogleFonts.cairo(color: AdminColors.textSecondary)))
+                    ? AdminEmptyStateCard(
+                        title: _searchQuery.isNotEmpty
+                            ? 'لا يوجد أطباء مطابقين لبحث "$_searchQuery"'
+                            : 'لا يوجد أطباء في هذا القسم حالياً',
+                        description: _searchQuery.isNotEmpty
+                            ? 'تأكد من كتابة الاسم أو التخصص بشكل صحيح، أو أعد ضبط خيارات البحث.'
+                            : 'جميع بيانات الأطباء والعيادات محدثة وجاهزة للمعاينة والإدارة.',
+                        icon: Icons.medical_services_outlined,
+                        onRefresh: () => _fetchDoctors(),
+                      )
                     : ListView.separated(
                         itemCount: filtered.length,
                         separatorBuilder: (context, index) => const SizedBox(height: 10),
@@ -1333,6 +1431,100 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                           );
                         },
                       ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKpiCard({
+    required String title,
+    required int count,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required Color bgColor,
+    required Color borderColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: GoogleFonts.cairo(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.bold,
+                    color: AdminColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Row(
+                  children: [
+                    Text(
+                      '$count',
+                      style: GoogleFonts.cairo(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                        color: AdminColors.textPrimary,
+                        height: 1.1,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        count > 0 ? 'نشط' : '0',
+                        style: GoogleFonts.cairo(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w800,
+                          color: color,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  subtitle,
+                  style: GoogleFonts.cairo(
+                    fontSize: 10,
+                    color: Colors.grey.shade600,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
         ],
       ),

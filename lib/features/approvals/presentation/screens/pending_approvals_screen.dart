@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:doctor_admin/core/app_colors.dart';
 import 'package:doctor_admin/core/supabase_config.dart';
 import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
+import 'package:doctor_admin/core/widgets/admin_modern_tab_bar.dart';
 import 'package:doctor_admin/core/services/admin_realtime_manager.dart';
 import 'package:doctor_admin/core/services/admin_audit_service.dart';
 
@@ -15,32 +16,29 @@ class PendingApprovalsScreen extends StatefulWidget {
   State<PendingApprovalsScreen> createState() => _PendingApprovalsScreenState();
 }
 
-class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
-    with SingleTickerProviderStateMixin {
+class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
   final _client = AdminSupabaseConfig.client;
   final _realtimeManager = AdminRealtimeManager();
-  late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
 
   static final Map<String, List<Map<String, dynamic>>> _cache = {};
 
+  int _selectedTabIndex = 0; // 0: PENDING, 1: APPROVED, 2: REJECTED
   String _selectedRoleFilter = 'ALL'; // 'ALL', 'doctor', 'pharmacy'
   String _searchQuery = '';
   bool _isLoading = true;
   List<Map<String, dynamic>> _verificationsList = [];
 
+  int _pendingCount = 0;
+  int _approvedCount = 0;
+  int _rejectedCount = 0;
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-    _tabController.addListener(() {
-      if (!_tabController.indexIsChanging) {
-        _onFilterChanged();
-      }
-    });
-
     _realtimeManager.addPartnerListener(_onRealtimePartner);
     _onFilterChanged();
+    _fetchStatusCounts();
   }
 
   void _onFilterChanged() {
@@ -59,19 +57,19 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
   void _onRealtimePartner() {
     if (mounted) {
       _fetchVerifications(silent: true);
+      _fetchStatusCounts();
     }
   }
 
   @override
   void dispose() {
     _realtimeManager.removePartnerListener(_onRealtimePartner);
-    _tabController.dispose();
     _searchController.dispose();
     super.dispose();
   }
 
   String get _currentStatusTab {
-    switch (_tabController.index) {
+    switch (_selectedTabIndex) {
       case 0:
         return 'PENDING';
       case 1:
@@ -81,6 +79,32 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
       default:
         return 'PENDING';
     }
+  }
+
+  Future<void> _fetchStatusCounts() async {
+    try {
+      final res = await _client.from('partner_verifications').select('status');
+      int pending = 0;
+      int approved = 0;
+      int rejected = 0;
+      for (final row in (res as List)) {
+        final st = (row['status'] as String? ?? '').toUpperCase();
+        if (st == 'PENDING') {
+          pending++;
+        } else if (st == 'APPROVED') {
+          approved++;
+        } else if (st == 'REJECTED') {
+          rejected++;
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _pendingCount = pending;
+          _approvedCount = approved;
+          _rejectedCount = rejected;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _fetchVerifications({bool silent = false}) async {
@@ -350,7 +374,7 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
       if (kIsWeb && Uri.base.scheme == 'https' && resolved.startsWith('http://178.105.236.62:8000')) {
         resolved = resolved.replaceFirst(
           'http://178.105.236.62:8000',
-          'https://griffin-cooling-method-ata.trycloudflare.com',
+          AdminSupabaseConfig.supabaseUrl,
         );
       }
       _signedUrlCache[trimmed] = resolved;
@@ -360,7 +384,7 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
       if (kIsWeb && Uri.base.scheme == 'https' && direct.startsWith('http://178.105.236.62:8000')) {
         direct = direct.replaceFirst(
           'http://178.105.236.62:8000',
-          'https://griffin-cooling-method-ata.trycloudflare.com',
+          AdminSupabaseConfig.supabaseUrl,
         );
       }
       _signedUrlCache[trimmed] = direct;
@@ -378,7 +402,7 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
       if (trimmed.startsWith('http://178.105.236.62:8000')) {
         return trimmed.replaceFirst(
           'http://178.105.236.62:8000',
-          'https://griffin-cooling-method-ata.trycloudflare.com',
+          AdminSupabaseConfig.supabaseUrl,
         );
       }
     }
@@ -570,24 +594,70 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
                 ),
                 icon: const Icon(Icons.refresh_rounded, size: 18),
                 label: Text('تحديث الطلبات', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
-                onPressed: _fetchVerifications,
+                onPressed: () {
+                  _fetchVerifications();
+                  _fetchStatusCounts();
+                },
               ),
             ],
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
+
+          // كروت المؤشرات العلوية (KPI Metric Summary Cards)
+          Row(
+            children: [
+              Expanded(
+                child: _buildKpiCard(
+                  title: 'طلبات معلقة بانتظار التدقيق',
+                  count: _pendingCount,
+                  subtitle: 'تتطلب فحص وثائق الهوية والترخيص',
+                  icon: Icons.hourglass_top_rounded,
+                  color: const Color(0xFFF59E0B),
+                  bgColor: const Color(0xFFFFFBEB),
+                  borderColor: const Color(0xFFFDE68A),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: _buildKpiCard(
+                  title: 'شركاء معتمدين ومفعلين',
+                  count: _approvedCount,
+                  subtitle: 'حسابات نشطة ومصرح لها بالعمل',
+                  icon: Icons.check_circle_rounded,
+                  color: const Color(0xFF10B981),
+                  bgColor: const Color(0xFFECFDF5),
+                  borderColor: const Color(0xFFA7F3D0),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: _buildKpiCard(
+                  title: 'طلبات تم رفضها',
+                  count: _rejectedCount,
+                  subtitle: 'مستندات غير مستوفية للشروط',
+                  icon: Icons.cancel_rounded,
+                  color: const Color(0xFFEF4444),
+                  bgColor: const Color(0xFFFEF2F2),
+                  borderColor: const Color(0xFFFECACA),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 18),
 
           // شريط البحث المباشر (Search Bar by Name & Phone)
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AdminColors.cardBorderMint),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 10,
-                  offset: const Offset(0, 3),
+                  color: Colors.black.withValues(alpha: 0.02),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
                 ),
               ],
             ),
@@ -616,7 +686,7 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
 
           const SizedBox(height: 16),
 
-          // التابات وفلاتر الدور
+          // التابات العصرية وفلاتر الدور
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -625,40 +695,49 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
                 children: [
                   Text('التصنيف:', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13, color: AdminColors.textPrimary)),
                   const SizedBox(width: 8),
-                  _buildRoleChip('الكل 🌐', 'ALL'),
-                  const SizedBox(width: 6),
-                  _buildRoleChip('أطباء 🩺', 'doctor'),
-                  const SizedBox(width: 6),
-                  _buildRoleChip('صيدليات 💊', 'pharmacy'),
+                  AdminFilterChips(
+                    options: const ['الكل 🌐', 'أطباء 🩺', 'صيدليات 💊'],
+                    selectedOption: _selectedRoleFilter == 'ALL'
+                        ? 'الكل 🌐'
+                        : (_selectedRoleFilter == 'doctor' ? 'أطباء 🩺' : 'صيدليات 💊'),
+                    onSelected: (val) {
+                      String roleKey = 'ALL';
+                      if (val.contains('أطباء')) roleKey = 'doctor';
+                      if (val.contains('صيدليات')) roleKey = 'pharmacy';
+                      setState(() => _selectedRoleFilter = roleKey);
+                      _onFilterChanged();
+                    },
+                  ),
                 ],
               ),
 
-              // تابات الحالة (معلقة، معتمدة، مرفوضة)
-              Container(
-                height: 40,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: TabBar(
-                  controller: _tabController,
-                  isScrollable: true,
-                  labelColor: AdminColors.primaryDark,
-                  unselectedLabelColor: Colors.grey.shade600,
-                  indicator: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(8),
-                    boxShadow: [
-                      BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 1)),
-                    ],
+              // تابات الحالة العصرية (معلقة، معتمدة، مرفوضة)
+              AdminModernTabBar(
+                tabs: [
+                  AdminTabItem(
+                    label: 'طلبات معلقة',
+                    icon: Icons.hourglass_top_rounded,
+                    count: _pendingCount,
+                    badgeColor: const Color(0xFFF59E0B),
                   ),
-                  tabs: const [
-                    Tab(text: 'طلبات معلقة ⏳'),
-                    Tab(text: 'معتمدة ✅'),
-                    Tab(text: 'مرفوضة ❌'),
-                  ],
-                ),
+                  AdminTabItem(
+                    label: 'معتمدة ومفعلة',
+                    icon: Icons.check_circle_rounded,
+                    count: _approvedCount,
+                    badgeColor: const Color(0xFF10B981),
+                  ),
+                  AdminTabItem(
+                    label: 'طلبات مرفوضة',
+                    icon: Icons.cancel_rounded,
+                    count: _rejectedCount,
+                    badgeColor: const Color(0xFFEF4444),
+                  ),
+                ],
+                selectedIndex: _selectedTabIndex,
+                onTabSelected: (index) {
+                  setState(() => _selectedTabIndex = index);
+                  _onFilterChanged();
+                },
               ),
             ],
           ),
@@ -672,7 +751,27 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
                     child: AdminTableSkeleton(rows: 6),
                   )
                 : filteredList.isEmpty
-                    ? _buildEmptyState()
+                    ? AdminEmptyStateCard(
+                        title: _searchQuery.isNotEmpty
+                            ? 'لا توجد نتائج تطابق بحثك "$_searchQuery"'
+                            : (_selectedTabIndex == 0
+                                ? 'لا توجد طلبات اعتماد معلقة حالياً'
+                                : (_selectedTabIndex == 1
+                                    ? 'لا يوجد شركاء معتمدين في هذا القسم'
+                                    : 'لا توجد طلبات مرفوضة في هذا القسم')),
+                        description: _searchQuery.isNotEmpty
+                            ? 'تأكد من كتابة الاسم أو رقم الهاتف بشكل صحيح، أو أعد ضبط الفلاتر.'
+                            : 'جميع طلبات توثيق واعتماد الهوية للأطباء والصيدليات تم البت فيها بنجاح.',
+                        icon: _selectedTabIndex == 0
+                            ? Icons.verified_user_rounded
+                            : (_selectedTabIndex == 1
+                                ? Icons.task_alt_rounded
+                                : Icons.folder_open_rounded),
+                        onRefresh: () {
+                          _fetchVerifications();
+                          _fetchStatusCounts();
+                        },
+                      )
                     : ListView.builder(
                         itemCount: filteredList.length,
                         itemBuilder: (context, index) {
@@ -686,56 +785,94 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen>
     );
   }
 
-  Widget _buildRoleChip(String label, String roleKey) {
-    final isSelected = _selectedRoleFilter == roleKey;
-    return InkWell(
-      onTap: () {
-        setState(() => _selectedRoleFilter = roleKey);
-        _fetchVerifications();
-      },
-      borderRadius: BorderRadius.circular(8),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected ? AdminColors.primaryDark : Colors.white,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: isSelected ? AdminColors.primaryDark : AdminColors.cardBorderMint),
-        ),
-        child: Text(
-          label,
-          style: GoogleFonts.cairo(
-            fontSize: 12,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-            color: isSelected ? Colors.white : AdminColors.textPrimary,
+  Widget _buildKpiCard({
+    required String title,
+    required int count,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required Color bgColor,
+    required Color borderColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
           ),
-        ),
+        ],
       ),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: AdminColors.accentMintLight.withValues(alpha: 0.4),
-              shape: BoxShape.circle,
+              color: color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(Icons.check_circle_outline_rounded, color: AdminColors.primaryDark, size: 48),
+            child: Icon(icon, color: color, size: 24),
           ),
-          const SizedBox(height: 14),
-          Text(
-            _searchQuery.isNotEmpty ? 'لا توجد نتائج تطابق بحثك "$_searchQuery"' : 'لا توجد طلبات في هذا القسم حالياً',
-            style: GoogleFonts.cairo(fontSize: 16, fontWeight: FontWeight.bold, color: AdminColors.textPrimary),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            _searchQuery.isNotEmpty ? 'جرب البحث باسم آخر أو تأكد من رقم الهاتف' : 'ستظهر هنا أي طلبات توثيق جديدة للمراجعة والتدقيق.',
-            style: GoogleFonts.cairo(fontSize: 12.5, color: AdminColors.textSecondary),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: GoogleFonts.cairo(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: AdminColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Text(
+                      '$count',
+                      style: GoogleFonts.cairo(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        color: AdminColors.textPrimary,
+                        height: 1.1,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        count > 0 ? 'نشط' : 'فارغ',
+                        style: GoogleFonts.cairo(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: color,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  subtitle,
+                  style: GoogleFonts.cairo(
+                    fontSize: 10.5,
+                    color: Colors.grey.shade600,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
         ],
       ),

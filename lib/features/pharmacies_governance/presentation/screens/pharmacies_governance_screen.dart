@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:doctor_admin/core/app_colors.dart';
 import 'package:doctor_admin/core/supabase_config.dart';
 import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
+import 'package:doctor_admin/core/widgets/admin_modern_tab_bar.dart';
 import 'package:doctor_admin/core/services/admin_realtime_manager.dart';
 import 'package:doctor_admin/core/services/admin_audit_service.dart';
 
@@ -23,7 +24,7 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
   List<Map<String, dynamic>> _pharmacies = [];
   String _searchQuery = '';
   String _governorateFilter = 'الكل';
-  String _statusFilter = 'الكل';
+  int _selectedStatusTabIndex = 0; // 0: الكل, 1: معتمد, 2: مجمد
 
   @override
   void initState() {
@@ -259,6 +260,24 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
 
   @override
   Widget build(BuildContext context) {
+    int activeCount = 0;
+    int frozenCount = 0;
+    int deliveryCount = 0;
+
+    for (final p in _pharmacies) {
+      final profile = p['profiles'] as Map<String, dynamic>? ?? {};
+      final isApproved = (profile['is_approved'] == true) &&
+          (p['subscription_status'] != 'SUSPENDED' && p['subscription_status'] != 'FROZEN');
+      if (isApproved) {
+        activeCount++;
+      } else {
+        frozenCount++;
+      }
+      if (p['has_delivery'] == true) {
+        deliveryCount++;
+      }
+    }
+
     final filtered = _pharmacies.where((p) {
       final profile = p['profiles'] as Map<String, dynamic>? ?? {};
       final name = p['name']?.toString() ?? profile['full_name']?.toString() ?? '';
@@ -267,9 +286,12 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
           (p['subscription_status'] != 'SUSPENDED' && p['subscription_status'] != 'FROZEN');
 
       final matchGov = _governorateFilter == 'الكل' || gov == _governorateFilter;
-      final matchStatus = _statusFilter == 'الكل' ||
-          (_statusFilter == 'معتمد' && isApproved) ||
-          (_statusFilter == 'مجمد' && !isApproved);
+      bool matchStatus = true;
+      if (_selectedStatusTabIndex == 1) {
+        matchStatus = isApproved;
+      } else if (_selectedStatusTabIndex == 2) {
+        matchStatus = !isApproved;
+      }
 
       final matchSearch = _searchQuery.isEmpty ||
           name.contains(_searchQuery) ||
@@ -319,6 +341,7 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
                   backgroundColor: AdminColors.primaryDark,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
                 icon: const Icon(Icons.refresh_rounded, size: 18),
                 label: Text('تحديث القائمة', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
@@ -327,25 +350,87 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
             ],
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
-          // Filters Bar
+          // كروت المؤشرات العلوية (KPI Metric Summary Cards)
+          Row(
+            children: [
+              Expanded(
+                child: _buildKpiCard(
+                  title: 'إجمالي الصيدليات',
+                  count: _pharmacies.length,
+                  subtitle: 'موزعة في مختلف المحافظات',
+                  icon: Icons.local_pharmacy_rounded,
+                  color: AdminColors.primaryDark,
+                  bgColor: const Color(0xFFF0FDF4),
+                  borderColor: const Color(0xFFBBF7D0),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildKpiCard(
+                  title: 'معتمدة ونشطة 🟢',
+                  count: activeCount,
+                  subtitle: 'جاهزة لصرف الروشتات للمرضى',
+                  icon: Icons.check_circle_rounded,
+                  color: const Color(0xFF10B981),
+                  bgColor: const Color(0xFFECFDF5),
+                  borderColor: const Color(0xFFA7F3D0),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildKpiCard(
+                  title: 'خدمة التوصيل 🛵',
+                  count: deliveryCount,
+                  subtitle: 'توفر توصيل الدواء للمنازل',
+                  icon: Icons.delivery_dining_rounded,
+                  color: const Color(0xFF0EA5E9),
+                  bgColor: const Color(0xFFF0F9FF),
+                  borderColor: const Color(0xFFBAE6FD),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildKpiCard(
+                  title: 'مجمدة أو موقوفة ⏸️',
+                  count: frozenCount,
+                  subtitle: 'حسابات غير مفعلة حالياً',
+                  icon: Icons.pause_circle_filled_rounded,
+                  color: const Color(0xFFEF4444),
+                  bgColor: const Color(0xFFFEF2F2),
+                  borderColor: const Color(0xFFFECACA),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 18),
+
+          // Search & Filters Bar
           Row(
             children: [
               // Search
               Expanded(
-                child: TextField(
-                  style: GoogleFonts.cairo(fontSize: 13),
-                  onChanged: (val) => setState(() => _searchQuery = val.trim()),
-                  decoration: InputDecoration(
-                    hintText: 'بحث باسم الصيدلية أو المحافظة...',
-                    hintStyle: GoogleFonts.cairo(fontSize: 13, color: AdminColors.textSecondary),
-                    prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AdminColors.textSecondary),
-                    filled: true,
-                    fillColor: AdminColors.surfaceWhite,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AdminColors.cardBorder)),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AdminColors.cardBorder)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
+                    ],
+                  ),
+                  child: TextField(
+                    style: GoogleFonts.cairo(fontSize: 13),
+                    onChanged: (val) => setState(() => _searchQuery = val.trim()),
+                    decoration: InputDecoration(
+                      hintText: '🔍 بحث باسم الصيدلية أو المحافظة...',
+                      hintStyle: GoogleFonts.cairo(fontSize: 13, color: AdminColors.textSecondary),
+                      prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AdminColors.textSecondary),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    ),
                   ),
                 ),
               ),
@@ -353,8 +438,15 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
 
               // Governorate Filter
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                decoration: BoxDecoration(color: AdminColors.surfaceWhite, borderRadius: BorderRadius.circular(12), border: Border.all(color: AdminColors.cardBorder)),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
+                  ],
+                ),
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
                     value: _governorateFilter,
@@ -364,22 +456,20 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
-
-              // Status Filter
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                decoration: BoxDecoration(color: AdminColors.surfaceWhite, borderRadius: BorderRadius.circular(12), border: Border.all(color: AdminColors.cardBorder)),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _statusFilter,
-                    style: GoogleFonts.cairo(color: AdminColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
-                    items: ['الكل', 'معتمد', 'مجمد'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                    onChanged: (val) => setState(() => _statusFilter = val ?? 'الكل'),
-                  ),
-                ),
-              ),
             ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // تابات الحالة العصرية (Segmented Modern Tab Bar)
+          AdminModernTabBar(
+            tabs: [
+              AdminTabItem(label: 'الكل', icon: Icons.store_rounded, count: _pharmacies.length),
+              AdminTabItem(label: 'معتمدة ونشطة 🟢', icon: Icons.check_circle_rounded, count: activeCount, badgeColor: const Color(0xFF10B981)),
+              AdminTabItem(label: 'مجمدة أو موقوفة ⏸️', icon: Icons.pause_circle_filled_rounded, count: frozenCount, badgeColor: const Color(0xFFEF4444)),
+            ],
+            selectedIndex: _selectedStatusTabIndex,
+            onTabSelected: (idx) => setState(() => _selectedStatusTabIndex = idx),
           ),
 
           const SizedBox(height: 16),
@@ -389,7 +479,16 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
             child: _isLoading && _pharmacies.isEmpty
                 ? const SingleChildScrollView(child: AdminTableSkeleton(rows: 8))
                 : filtered.isEmpty
-                    ? Center(child: Text('لا توجد صيدليات مطابقة للبحث', style: GoogleFonts.cairo(color: AdminColors.textSecondary)))
+                    ? AdminEmptyStateCard(
+                        title: _searchQuery.isNotEmpty
+                            ? 'لا توجد صيدليات مطابقة لبحث "$_searchQuery"'
+                            : 'لا توجد صيدليات في هذا القسم حالياً',
+                        description: _searchQuery.isNotEmpty
+                            ? 'تأكد من كتابة الاسم أو المحافظة بشكل صحيح، أو أعد ضبط خيارات البحث.'
+                            : 'جميع بيانات الصيدليات ومخزون الأدوية محدثة وجاهزة للرقابة.',
+                        icon: Icons.local_pharmacy_outlined,
+                        onRefresh: _fetchPharmacies,
+                      )
                     : ListView.separated(
                         itemCount: filtered.length,
                         separatorBuilder: (context, index) => const SizedBox(height: 10),
@@ -520,6 +619,100 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
                           );
                         },
                       ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKpiCard({
+    required String title,
+    required int count,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required Color bgColor,
+    required Color borderColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: GoogleFonts.cairo(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.bold,
+                    color: AdminColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Row(
+                  children: [
+                    Text(
+                      '$count',
+                      style: GoogleFonts.cairo(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                        color: AdminColors.textPrimary,
+                        height: 1.1,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        count > 0 ? 'نشط' : '0',
+                        style: GoogleFonts.cairo(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w800,
+                          color: color,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  subtitle,
+                  style: GoogleFonts.cairo(
+                    fontSize: 10,
+                    color: Colors.grey.shade600,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
         ],
       ),

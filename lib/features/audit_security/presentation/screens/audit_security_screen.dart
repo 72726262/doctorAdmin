@@ -4,6 +4,7 @@ import 'package:intl/intl.dart' as intl;
 import 'package:doctor_admin/core/app_colors.dart';
 import 'package:doctor_admin/core/supabase_config.dart';
 import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
+import 'package:doctor_admin/core/widgets/admin_modern_tab_bar.dart';
 import 'package:doctor_admin/core/services/admin_realtime_manager.dart';
 
 class AuditSecurityScreen extends StatefulWidget {
@@ -21,7 +22,7 @@ class _AuditSecurityScreenState extends State<AuditSecurityScreen> {
 
   bool _isLoading = true;
   List<Map<String, dynamic>> _auditLogs = [];
-  String _selectedFilter = 'ALL';
+  int _selectedTabIndex = 0; // 0: ALL, 1: APPROV, 2: SUBS, 3: QUEUE, 4: BLOCKED
   String _searchQuery = '';
 
   @override
@@ -100,6 +101,30 @@ class _AuditSecurityScreenState extends State<AuditSecurityScreen> {
 
   @override
   Widget build(BuildContext context) {
+    int totalCount = _auditLogs.length;
+    int approvCount = 0;
+    int subsCount = 0;
+    int queueCount = 0;
+    int blockedCount = 0;
+
+    for (final log in _auditLogs) {
+      final action = (log['action_type'] as String? ?? '').toLowerCase();
+      final targetType = (log['target_type'] as String? ?? '').toUpperCase();
+      final status = (log['status'] as String? ?? '').toUpperCase();
+      if (action.contains('اعتماد') || action.contains('توثيق') || targetType == 'DOCTOR' || targetType == 'PHARMACY') {
+        approvCount++;
+      }
+      if (targetType == 'SUBSCRIPTION' || action.contains('اشتراك') || action.contains('سداد')) {
+        subsCount++;
+      }
+      if (targetType.contains('BRANCH') || action.contains('طابور') || action.contains('حجز')) {
+        queueCount++;
+      }
+      if (status == 'BLOCKED' || status == 'REJECTED' || action.contains('رفض') || action.contains('حظر')) {
+        blockedCount++;
+      }
+    }
+
     final filtered = _auditLogs.where((log) {
       final action = (log['action_type'] as String? ?? '').toLowerCase();
       final target = (log['target_name'] as String? ?? '').toLowerCase();
@@ -107,19 +132,17 @@ class _AuditSecurityScreenState extends State<AuditSecurityScreen> {
       final targetType = (log['target_type'] as String? ?? '').toUpperCase();
       final status = (log['status'] as String? ?? '').toUpperCase();
 
-      // Filter by type
       bool matchesType = true;
-      if (_selectedFilter == 'APPROV') {
+      if (_selectedTabIndex == 1) {
         matchesType = action.contains('اعتماد') || action.contains('توثيق') || targetType == 'DOCTOR' || targetType == 'PHARMACY';
-      } else if (_selectedFilter == 'SUBS') {
+      } else if (_selectedTabIndex == 2) {
         matchesType = targetType == 'SUBSCRIPTION' || action.contains('اشتراك') || action.contains('سداد');
-      } else if (_selectedFilter == 'QUEUE') {
+      } else if (_selectedTabIndex == 3) {
         matchesType = targetType.contains('BRANCH') || action.contains('طابور') || action.contains('حجز');
-      } else if (_selectedFilter == 'BLOCKED') {
+      } else if (_selectedTabIndex == 4) {
         matchesType = status == 'BLOCKED' || status == 'REJECTED' || action.contains('رفض') || action.contains('حظر');
       }
 
-      // Filter by search
       bool matchesSearch = true;
       if (_searchQuery.trim().isNotEmpty) {
         final q = _searchQuery.trim().toLowerCase();
@@ -192,38 +215,105 @@ class _AuditSecurityScreenState extends State<AuditSecurityScreen> {
             ],
           ),
 
+          const SizedBox(height: 16),
+
+          // كروت المؤشرات العلوية (KPI Metric Summary Cards)
+          Row(
+            children: [
+              Expanded(
+                child: _buildKpiCard(
+                  title: 'إجمالي السجلات',
+                  count: totalCount,
+                  subtitle: 'عمليات موثقة ومؤرشفة',
+                  icon: Icons.shield_rounded,
+                  color: AdminColors.primaryDark,
+                  bgColor: const Color(0xFFF0FDF4),
+                  borderColor: const Color(0xFFBBF7D0),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildKpiCard(
+                  title: 'اعتمادات وتوثيق 📋',
+                  count: approvCount,
+                  subtitle: 'تراخيص وهوية الأطباء والصيادلة',
+                  icon: Icons.verified_user_rounded,
+                  color: const Color(0xFF10B981),
+                  bgColor: const Color(0xFFECFDF5),
+                  borderColor: const Color(0xFFA7F3D0),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildKpiCard(
+                  title: 'سداد واشتراكات 💳',
+                  count: subsCount,
+                  subtitle: 'إيصالات واعتماد المدفوعات',
+                  icon: Icons.payments_rounded,
+                  color: const Color(0xFF0EA5E9),
+                  bgColor: const Color(0xFFF0F9FF),
+                  borderColor: const Color(0xFFBAE6FD),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildKpiCard(
+                  title: 'حظر ورفض 🛑',
+                  count: blockedCount,
+                  subtitle: 'قرارات إدارية رقابية مشددة',
+                  icon: Icons.block_rounded,
+                  color: const Color(0xFFEF4444),
+                  bgColor: const Color(0xFFFEF2F2),
+                  borderColor: const Color(0xFFFECACA),
+                ),
+              ),
+            ],
+          ),
+
           const SizedBox(height: 18),
 
           // Filters and Search Bar
           Row(
             children: [
               Expanded(
-                child: TextField(
-                  style: GoogleFonts.cairo(fontSize: 13),
-                  onChanged: (v) => setState(() => _searchQuery = v),
-                  decoration: InputDecoration(
-                    hintText: '🔍 ابحث في سجل العمليات باسم المشرف، الإجراء، أو الطرف المستهدف...',
-                    hintStyle: GoogleFonts.cairo(fontSize: 12.5, color: AdminColors.textSecondary),
-                    filled: true,
-                    fillColor: AdminColors.surfaceWhite,
-                    prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AdminColors.primaryDark),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AdminColors.cardBorder)),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AdminColors.cardBorder)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
+                    ],
+                  ),
+                  child: TextField(
+                    style: GoogleFonts.cairo(fontSize: 13),
+                    onChanged: (v) => setState(() => _searchQuery = v),
+                    decoration: InputDecoration(
+                      hintText: '🔍 ابحث في سجل العمليات باسم المشرف، الإجراء، أو الطرف المستهدف...',
+                      hintStyle: GoogleFonts.cairo(fontSize: 12.5, color: AdminColors.textSecondary),
+                      prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AdminColors.primaryDark),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
-              _buildFilterChip('الكل 🌐', 'ALL'),
-              const SizedBox(width: 6),
-              _buildFilterChip('الاعتمادات 📋', 'APPROV'),
-              const SizedBox(width: 6),
-              _buildFilterChip('الاشتراكات 💳', 'SUBS'),
-              const SizedBox(width: 6),
-              _buildFilterChip('الطوابير 🏥', 'QUEUE'),
-              const SizedBox(width: 6),
-              _buildFilterChip('الرفض والحظر 🛑', 'BLOCKED'),
             ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // تابات الحالة العصرية (Segmented Modern Tab Bar)
+          AdminModernTabBar(
+            tabs: [
+              AdminTabItem(label: 'الكل', icon: Icons.all_inbox_rounded, count: totalCount),
+              AdminTabItem(label: 'الاعتمادات 📋', icon: Icons.verified_user_rounded, count: approvCount, badgeColor: const Color(0xFF10B981)),
+              AdminTabItem(label: 'الاشتراكات 💳', icon: Icons.payments_rounded, count: subsCount, badgeColor: const Color(0xFF0EA5E9)),
+              AdminTabItem(label: 'الطوابير 🏥', icon: Icons.radar_rounded, count: queueCount, badgeColor: const Color(0xFFF59E0B)),
+              AdminTabItem(label: 'الرفض والحظر 🛑', icon: Icons.block_rounded, count: blockedCount, badgeColor: const Color(0xFFEF4444)),
+            ],
+            selectedIndex: _selectedTabIndex,
+            onTabSelected: (idx) => setState(() => _selectedTabIndex = idx),
           ),
 
           const SizedBox(height: 16),
@@ -233,15 +323,15 @@ class _AuditSecurityScreenState extends State<AuditSecurityScreen> {
             child: _isLoading && _auditLogs.isEmpty
                 ? const SingleChildScrollView(child: AdminTableSkeleton(rows: 8))
                 : filtered.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.verified_user_outlined, size: 48, color: AdminColors.textSecondary),
-                            const SizedBox(height: 10),
-                            Text('لا توجد سجلات رقابية مطابقة للبحث', style: GoogleFonts.cairo(fontSize: 14, color: AdminColors.textSecondary)),
-                          ],
-                        ),
+                    ? AdminEmptyStateCard(
+                        title: _searchQuery.isNotEmpty
+                            ? 'لا توجد سجلات رقابية مطابقة لبحث "$_searchQuery"'
+                            : 'لا توجد سجلات رقابية في هذا القسم',
+                        description: _searchQuery.isNotEmpty
+                            ? 'تأكد من كتابة الكلمات الدلالية بشكل صحيح، أو اختر تصنيفاً آخر.'
+                            : 'جميع الحركات الإدارية والرقابية في المنظومة تدون هنا بشكل مشفر ولحظي.',
+                        icon: Icons.security_rounded,
+                        onRefresh: _fetchAuditLogs,
                       )
                     : ListView.builder(
                         itemCount: filtered.length,
@@ -329,27 +419,96 @@ class _AuditSecurityScreenState extends State<AuditSecurityScreen> {
     );
   }
 
-  Widget _buildFilterChip(String label, String filterKey) {
-    final isSelected = _selectedFilter == filterKey;
-    return InkWell(
-      onTap: () => setState(() => _selectedFilter = filterKey),
-      borderRadius: BorderRadius.circular(8),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected ? AdminColors.primaryDark : Colors.white,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: isSelected ? AdminColors.primaryDark : AdminColors.cardBorderMint),
-        ),
-        child: Text(
-          label,
-          style: GoogleFonts.cairo(
-            fontSize: 12,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-            color: isSelected ? Colors.white : AdminColors.textPrimary,
+  Widget _buildKpiCard({
+    required String title,
+    required int count,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required Color bgColor,
+    required Color borderColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
-        ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: GoogleFonts.cairo(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.bold,
+                    color: AdminColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Row(
+                  children: [
+                    Text(
+                      '$count',
+                      style: GoogleFonts.cairo(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                        color: AdminColors.textPrimary,
+                        height: 1.1,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        count > 0 ? 'نشط' : '0',
+                        style: GoogleFonts.cairo(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w800,
+                          color: color,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  subtitle,
+                  style: GoogleFonts.cairo(
+                    fontSize: 10,
+                    color: Colors.grey.shade600,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

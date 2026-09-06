@@ -4,6 +4,7 @@ import 'package:intl/intl.dart' as intl;
 import 'package:doctor_admin/core/app_colors.dart';
 import 'package:doctor_admin/core/supabase_config.dart';
 import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
+import 'package:doctor_admin/core/widgets/admin_modern_tab_bar.dart';
 import 'package:doctor_admin/core/services/admin_realtime_manager.dart';
 import 'package:doctor_admin/core/services/admin_audit_service.dart';
 
@@ -25,6 +26,8 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
 
   bool _isLoading = true;
   String _searchQuery = '';
+  String _selectedRoleFilter = 'الكل';
+  Map<String, int> _counts = {'PENDING': 0, 'APPROVED': 0, 'REJECTED': 0};
   List<Map<String, dynamic>> _requests = [];
 
   @override
@@ -33,6 +36,7 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
+        setState(() {});
         _onFilterChanged();
       }
     });
@@ -123,11 +127,31 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
           _cache[_currentStatusTab] = list;
           _isLoading = false;
         });
+
+        // Also fetch live counts for all status tabs
+        _fetchStatusCounts();
       }
     } catch (e) {
       debugPrint('Error fetching subscription requests: $e');
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _fetchStatusCounts() async {
+    try {
+      final res = await _client.from('subscription_requests').select('status');
+      final list = List<Map<String, dynamic>>.from(res as List);
+      final newCounts = {'PENDING': 0, 'APPROVED': 0, 'REJECTED': 0};
+      for (final r in list) {
+        final s = (r['status'] as String? ?? '').toUpperCase();
+        if (newCounts.containsKey(s)) {
+          newCounts[s] = (newCounts[s] ?? 0) + 1;
+        }
+      }
+      if (mounted) {
+        setState(() => _counts = newCounts);
+      }
+    } catch (_) {}
   }
 
   /// اعتماد فوري وتمديد الاشتراك بعدد الأيام المحددة أو التاريخ المحدد
@@ -640,13 +664,18 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
   @override
   Widget build(BuildContext context) {
     final filtered = _requests.where((r) {
+      final role = (r['role'] ?? '').toString().toUpperCase();
+      if (_selectedRoleFilter == 'أطباء' && role != 'DOCTOR') return false;
+      if (_selectedRoleFilter == 'صيدليات' && role != 'PHARMACY') return false;
+
       if (_searchQuery.trim().isEmpty) return true;
       final q = _searchQuery.toLowerCase();
       final profile = r['profiles'] as Map<String, dynamic>? ?? {};
       final name = (profile['full_name'] as String? ?? '').toLowerCase();
       final phone = (profile['phone'] as String? ?? '').toLowerCase();
       final sender = (r['sender_number'] as String? ?? '').toLowerCase();
-      return name.contains(q) || phone.contains(q) || sender.contains(q);
+      final ref = (r['transaction_reference'] as String? ?? '').toLowerCase();
+      return name.contains(q) || phone.contains(q) || sender.contains(q) || ref.contains(q);
     }).toList();
 
     return Padding(
@@ -654,7 +683,7 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
+          // Header & Refresh Action
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -664,88 +693,188 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
                   Row(
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(color: AdminColors.primaryDark.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
-                        child: const Icon(Icons.receipt_long_rounded, color: AdminColors.primaryDark, size: 24),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF0F766E), Color(0xFF0D9488)],
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AdminColors.primaryDark.withValues(alpha: 0.25),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(Icons.receipt_long_rounded, color: Colors.white, size: 22),
                       ),
-                      const SizedBox(width: 10),
-                      Text('إدارة الاشتراكات والمدفوعات البنكية 💳', style: GoogleFonts.cairo(fontSize: 18, fontWeight: FontWeight.w900, color: AdminColors.textPrimary)),
+                      const SizedBox(width: 12),
+                      Text(
+                        'إدارة الاشتراكات والمدفوعات البنكية',
+                        style: GoogleFonts.cairo(fontSize: 20, fontWeight: FontWeight.w900, color: AdminColors.textPrimary),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 4),
-                  Text('تدقيق إيصالات سداد الأطباء والصيدليات (فودافون كاش، إنستاباي) وتمديد الباقات والتحكم بالمدد', style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textSecondary)),
+                  Text(
+                    'تدقيق إيصالات سداد الأطباء والصيدليات (فودافون كاش، إنستاباي، بنك) وتمديد الباقات والتحكم بالمدد',
+                    style: GoogleFonts.cairo(fontSize: 12.5, color: AdminColors.textSecondary),
+                  ),
                 ],
               ),
               ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(backgroundColor: AdminColors.primaryDark, foregroundColor: Colors.white),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AdminColors.primaryDark,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
                 icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: Text('تحديث الإيصالات', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+                label: Text('تحديث الإيصالات', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13)),
                 onPressed: _fetchRequests,
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // 1. Top KPI Summary Strip
+          Row(
+            children: [
+              Expanded(
+                child: _buildMetricCard(
+                  title: 'طلبات قيد المراجعة',
+                  count: _counts['PENDING'] ?? 0,
+                  icon: Icons.hourglass_top_rounded,
+                  color: const Color(0xFFF59E0B), // Amber
+                  bgColor: const Color(0xFFFFFBEB),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: _buildMetricCard(
+                  title: 'إيصالات معتمدة',
+                  count: _counts['APPROVED'] ?? 0,
+                  icon: Icons.check_circle_rounded,
+                  color: const Color(0xFF10B981), // Emerald
+                  bgColor: const Color(0xFFECFDF5),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: _buildMetricCard(
+                  title: 'إيصالات مرفوضة',
+                  count: _counts['REJECTED'] ?? 0,
+                  icon: Icons.cancel_rounded,
+                  color: const Color(0xFFEF4444), // Red
+                  bgColor: const Color(0xFFFEF2F2),
+                ),
               ),
             ],
           ),
 
           const SizedBox(height: 18),
 
-          // Search Bar
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AdminColors.cardBorderMint),
-            ),
-            child: TextField(
-              controller: _searchController,
-              onChanged: (v) => setState(() => _searchQuery = v),
-              style: GoogleFonts.cairo(fontSize: 13),
-              decoration: InputDecoration(
-                hintText: '🔍 ابحث باسم الطبيب، رقم الهاتف، أو رقم المحفظة المحول منها...',
-                prefixIcon: const Icon(Icons.search_rounded, color: AdminColors.primaryDark),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          // 2. Toolbar: Search Bar & Role Filters
+          Row(
+            children: [
+              // Search Bar
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.02),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: TextField(
+                    controller: _searchController,
+                    onChanged: (v) => setState(() => _searchQuery = v),
+                    style: GoogleFonts.cairo(fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'ابحث باسم الطبيب، رقم الهاتف، رقم المعاملة، أو رقم المحفظة...',
+                      hintStyle: GoogleFonts.cairo(fontSize: 12.5, color: const Color(0xFF94A3B8)),
+                      prefixIcon: const Icon(Icons.search_rounded, color: AdminColors.primaryDark, size: 20),
+                      suffixIcon: _searchQuery.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear_rounded, size: 18, color: Color(0xFF94A3B8)),
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() => _searchQuery = '');
+                              },
+                            )
+                          : null,
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    ),
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(width: 14),
+
+              // Role Filter Chips
+              AdminFilterChips(
+                options: const ['الكل', 'أطباء', 'صيدليات'],
+                selectedOption: _selectedRoleFilter,
+                onSelected: (val) => setState(() => _selectedRoleFilter = val),
+              ),
+            ],
           ),
 
           const SizedBox(height: 14),
 
-          // Tabs
-          Container(
-            height: 42,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.grey.shade300),
-            ),
-            child: TabBar(
-              controller: _tabController,
-              isScrollable: true,
-              labelColor: AdminColors.primaryDark,
-              unselectedLabelColor: Colors.grey.shade600,
-              indicator: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4)],
+          // 3. Modern Segmented Tab Bar with Badges
+          AdminModernTabBar(
+            selectedIndex: _tabController.index,
+            onTabSelected: (index) {
+              _tabController.animateTo(index);
+            },
+            tabs: [
+              AdminTabItem(
+                label: 'إيصالات قيد المراجعة',
+                icon: Icons.hourglass_top_rounded,
+                count: _counts['PENDING'] ?? 0,
+                badgeColor: const Color(0xFFF59E0B),
               ),
-              tabs: const [
-                Tab(text: 'إيصالات قيد المراجعة ⏳'),
-                Tab(text: 'إيصالات معتمدة ✅'),
-                Tab(text: 'إيصالات مرفوضة ❌'),
-              ],
-            ),
+              AdminTabItem(
+                label: 'إيصالات معتمدة',
+                icon: Icons.verified_rounded,
+                count: _counts['APPROVED'] ?? 0,
+                badgeColor: const Color(0xFF10B981),
+              ),
+              AdminTabItem(
+                label: 'إيصالات مرفوضة',
+                icon: Icons.cancel_outlined,
+                count: _counts['REJECTED'] ?? 0,
+                badgeColor: const Color(0xFFEF4444),
+              ),
+            ],
           ),
 
           const SizedBox(height: 16),
 
-          // List
+          // 4. List of Requests / Empty State
           Expanded(
             child: _isLoading && _requests.isEmpty
                 ? const SingleChildScrollView(
                     child: AdminTableSkeleton(rows: 6),
                   )
                 : filtered.isEmpty
-                    ? Center(
-                        child: Text('لا توجد طلبات اشتراك في هذا القسم حالياً', style: GoogleFonts.cairo(fontSize: 14, color: AdminColors.textSecondary)),
+                    ? AdminEmptyStateCard(
+                        title: 'لا توجد إيصالات في هذا القسم',
+                        description: _searchQuery.isNotEmpty
+                            ? 'لم نتمكن من العثور على أي نتائج مطابقة لكلمة البحث "$_searchQuery".'
+                            : 'لا توجد طلبات اشتراك مسجلة بحالة "${_currentStatusTab == 'PENDING' ? 'قيد المراجعة' : (_currentStatusTab == 'APPROVED' ? 'معتمدة' : 'مرفوضة')}" حالياً.',
+                        icon: Icons.receipt_long_outlined,
+                        onRefresh: _fetchRequests,
                       )
                     : ListView.builder(
                         itemCount: filtered.length,
@@ -754,6 +883,68 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
                           return _buildRequestCard(req);
                         },
                       ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricCard({
+    required String title,
+    required int count,
+    required IconData icon,
+    required Color color,
+    required Color bgColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: GoogleFonts.cairo(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF64748B),
+                  ),
+                ),
+                Text(
+                  '$count',
+                  style: GoogleFonts.cairo(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    color: AdminColors.textPrimary,
+                    height: 1.2,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -769,11 +960,13 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
     final isDoctor = role == 'DOCTOR';
     final amount = req['amount'] ?? req['amount_paid'] ?? 350;
     final months = req['months'] ?? 1;
+    final planName = req['plan_name'] ?? '$months شهر';
     final paymentMethod = req['payment_method'] ?? 'تحويل إلكتروني';
     final senderNumber = req['sender_number'] as String?;
     final dateStr = req['created_at'] as String?;
     final status = (req['status'] as String? ?? 'PENDING').toUpperCase();
     final isPending = status == 'PENDING';
+    final receiptUrl = req['receipt_image_url'] as String?;
 
     String formattedDate = '';
     if (dateStr != null) {
@@ -788,95 +981,284 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AdminColors.cardBorderMint),
+        border: Border.all(
+          color: isPending ? const Color(0xFFFED7AA) : const Color(0xFFE2E8F0),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header Row: Avatar, Info & Price Tag
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 22,
-                    backgroundColor: isDoctor ? AdminColors.primaryDark.withValues(alpha: 0.1) : Colors.teal.shade50,
-                    child: Icon(isDoctor ? Icons.medical_services_rounded : Icons.local_pharmacy_rounded, color: isDoctor ? AdminColors.primaryDark : Colors.teal),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(fullName, style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 15)),
-                      Text('$phone • $gov', style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textSecondary)),
-                    ],
-                  ),
-                ],
-              ),
+              // Avatar
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(color: AdminColors.accentMintLight, borderRadius: BorderRadius.circular(8)),
-                child: Text('$amount ج.م ($months شهر)', style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 13, color: AdminColors.primaryDark)),
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: isDoctor
+                        ? [const Color(0xFF0F766E), const Color(0xFF14B8A6)]
+                        : [const Color(0xFF0284C7), const Color(0xFF38BDF8)],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  isDoctor ? Icons.medical_services_rounded : Icons.local_pharmacy_rounded,
+                  color: Colors.white,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 14),
+
+              // Name & Details
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            fullName,
+                            style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 15.5, color: AdminColors.textPrimary),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: isDoctor ? const Color(0xFFCCFBF1) : const Color(0xFFE0F2FE),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            isDoctor ? 'طبيب' : 'صيدلية',
+                            style: GoogleFonts.cairo(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: isDoctor ? const Color(0xFF0F766E) : const Color(0xFF0369A1),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        const Icon(Icons.phone_outlined, size: 13, color: Color(0xFF64748B)),
+                        const SizedBox(width: 4),
+                        Text(phone, style: GoogleFonts.cairo(fontSize: 12, color: const Color(0xFF64748B), fontWeight: FontWeight.w600)),
+                        const SizedBox(width: 10),
+                        const Icon(Icons.location_on_outlined, size: 13, color: Color(0xFF64748B)),
+                        const SizedBox(width: 3),
+                        Text(gov, style: GoogleFonts.cairo(fontSize: 12, color: const Color(0xFF64748B))),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // Price Badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFECFDF5),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFA7F3D0)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      '$amount ج.م',
+                      style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 16, color: const Color(0xFF065F46)),
+                    ),
+                    Text(
+                      planName,
+                      style: GoogleFonts.cairo(fontSize: 11, fontWeight: FontWeight.w700, color: const Color(0xFF047857)),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Text('طريقة الدفع: $paymentMethod ${senderNumber != null && senderNumber.isNotEmpty ? "• من رقم: $senderNumber" : ""}', style: GoogleFonts.cairo(fontSize: 12, color: Colors.grey.shade800)),
-          if ((req['extra_branches_count'] as int? ?? 0) > 0) ...[
-            const SizedBox(height: 2),
-            Row(
-              children: [
-                const Icon(Icons.storefront_rounded, size: 14, color: AdminColors.primaryDark),
-                const SizedBox(width: 4),
-                Text(
-                  'يشمل ${req['extra_branches_count']} فرع إضافي (+${req['extra_branches_amount']} ج.م)',
-                  style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: AdminColors.primaryDark),
+
+          const SizedBox(height: 14),
+
+          // Metadata Chips Row (Payment method, extra branches, dates)
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              // Payment Method
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-              ],
-            ),
-          ],
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.account_balance_wallet_outlined, size: 14, color: Color(0xFF475569)),
+                    const SizedBox(width: 5),
+                    Text(
+                      '$paymentMethod ${senderNumber != null && senderNumber.isNotEmpty ? "($senderNumber)" : ""}',
+                      style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.w700, color: const Color(0xFF334155)),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Extra Branches tag
+              if ((req['extra_branches_count'] as int? ?? 0) > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFFBEB),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFFDE68A)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.star_rounded, size: 15, color: Color(0xFFD97706)),
+                      const SizedBox(width: 4),
+                      Text(
+                        'يشمل المقر الرئيسي + ${req['extra_branches_count']} فروع إضافية (+${req['extra_branches_amount']} ج.م)',
+                        style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: const Color(0xFFB45309)),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // Date
+              Text(
+                'تاريخ الإرسال: $formattedDate',
+                style: GoogleFonts.cairo(fontSize: 11, color: const Color(0xFF94A3B8)),
+              ),
+            ],
+          ),
+
           if (req['start_date'] != null && req['end_date'] != null) ...[
+            const SizedBox(height: 8),
             Builder(builder: (context) {
               final s = DateTime.tryParse(req['start_date'])?.toLocal();
               final e = DateTime.tryParse(req['end_date'])?.toLocal();
               if (s != null && e != null) {
-                return Padding(
-                  padding: const EdgeInsets.only(top: 2),
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0FDF4),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFBBF7D0)),
+                  ),
                   child: Text(
                     'الفترة المعتمدة: من ${intl.DateFormat('yyyy/MM/dd').format(s)} إلى ${intl.DateFormat('yyyy/MM/dd').format(e)}',
-                    style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: AdminColors.primaryDark),
+                    style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: const Color(0xFF15803D)),
                   ),
                 );
               }
               return const SizedBox.shrink();
             }),
           ],
-          Text('تاريخ الإرسال: $formattedDate', style: GoogleFonts.cairo(fontSize: 11, color: Colors.grey)),
+
+          if (req['rejection_reason'] != null && (req['rejection_reason'] as String).isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFFECACA)),
+              ),
+              child: Text(
+                'سبب الرفض: ${req['rejection_reason']}',
+                style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: const Color(0xFFB91C1C)),
+              ),
+            ),
+          ],
+
           const SizedBox(height: 14),
-          const Divider(height: 1),
-          const SizedBox(height: 10),
+          const Divider(height: 1, color: Color(0xFFE2E8F0)),
+          const SizedBox(height: 12),
+
+          // Bottom Actions Row with Interactive Receipt Thumbnail
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              TextButton.icon(
-                icon: const Icon(Icons.image_search_rounded, size: 18),
-                label: Text('معاينة صورة الإيصال 📷', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12.5)),
-                onPressed: () => _showReceiptInspectorModal(req),
+              // Receipt Preview Button with Mini Thumbnail
+              InkWell(
+                onTap: () => _showReceiptInspectorModal(req),
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFCBD5E1)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (receiptUrl != null && receiptUrl.isNotEmpty)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: Image.network(
+                            receiptUrl,
+                            width: 28,
+                            height: 28,
+                            fit: BoxFit.cover,
+                            errorBuilder: (ctx, err, stack) => const Icon(Icons.receipt_rounded, size: 18, color: AdminColors.primaryDark),
+                          ),
+                        )
+                      else
+                        const Icon(Icons.receipt_rounded, size: 18, color: AdminColors.primaryDark),
+                      const SizedBox(width: 8),
+                      Text(
+                        'معاينة وتكبير صورة الإيصال 🔍',
+                        style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12, color: AdminColors.primaryDark),
+                      ),
+                    ],
+                  ),
+                ),
               ),
+
+              // Action Buttons
               if (isPending)
                 Row(
                   children: [
                     OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(foregroundColor: AdminColors.emergency, side: const BorderSide(color: AdminColors.emergency)),
-                      icon: const Icon(Icons.cancel_rounded, size: 16),
-                      label: Text('رفض ❌', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12)),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFDC2626),
+                        side: const BorderSide(color: Color(0xFFFCA5A5)),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      icon: const Icon(Icons.cancel_outlined, size: 16),
+                      label: Text('رفض الطلب', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12)),
                       onPressed: () => _showRejectDialog(req),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 10),
                     ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(backgroundColor: AdminColors.success, foregroundColor: Colors.white),
-                      icon: const Icon(Icons.verified_rounded, size: 16),
-                      label: Text('اعتماد وتمديد المدة 🌟', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF059669),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      icon: const Icon(Icons.check_circle_rounded, size: 16),
+                      label: Text('اعتماد وتمديد المدة ⚡', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12.5)),
                       onPressed: () => _showApproveDurationDialog(req),
                     ),
                   ],
@@ -888,3 +1270,4 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
     );
   }
 }
+
