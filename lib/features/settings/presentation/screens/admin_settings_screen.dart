@@ -31,6 +31,15 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   final _pharm6MonthCtrl = TextEditingController(text: '1800');
   final _pharm12MonthCtrl = TextEditingController(text: '3200');
 
+  // وحدات تحكم سياسات حوكمة التذاكر ومنع التلاعب
+  int _maxTicketsPerDoctor = 1;
+  int _maxTicketsGlobal = 2;
+  final _conflictBufferCtrl = TextEditingController(text: '45');
+  final _dailyCancelLimitCtrl = TextEditingController(text: '3');
+  bool _isConflictCheckEnabled = true;
+  bool _isNoShowPenaltyEnabled = true;
+  bool _isSavingTicketPolicy = false;
+
   @override
   void initState() {
     super.initState();
@@ -48,6 +57,8 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     _pharm3MonthCtrl.dispose();
     _pharm6MonthCtrl.dispose();
     _pharm12MonthCtrl.dispose();
+    _conflictBufferCtrl.dispose();
+    _dailyCancelLimitCtrl.dispose();
     super.dispose();
   }
 
@@ -58,6 +69,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     try {
       final methodsRes = await _client.from('payment_methods').select().order('created_at', ascending: true);
       final pricingRes = await _client.from('subscription_pricing_config').select();
+      final policyRes = await _client.from('system_ticket_policy_config').select().eq('id', 'default_policy').maybeSingle();
 
       if (mounted) {
         setState(() {
@@ -78,11 +90,71 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
               _pharm12MonthCtrl.text = (row['twelve_months_price'] ?? 3200).toString();
             }
           }
+
+          if (policyRes != null) {
+            _maxTicketsPerDoctor = policyRes['max_active_tickets_per_doctor'] as int? ?? 1;
+            _maxTicketsGlobal = policyRes['max_active_tickets_global'] as int? ?? 2;
+            _conflictBufferCtrl.text = (policyRes['min_minutes_between_same_day_tickets'] ?? 45).toString();
+            _dailyCancelLimitCtrl.text = (policyRes['daily_cancellation_limit'] ?? 3).toString();
+            _isConflictCheckEnabled = policyRes['is_conflict_check_enabled'] as bool? ?? true;
+            _isNoShowPenaltyEnabled = policyRes['is_no_show_penalty_enabled'] as bool? ?? true;
+          }
+
           _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _saveTicketPolicy() async {
+    setState(() => _isSavingTicketPolicy = true);
+    try {
+      await _client.from('system_ticket_policy_config').upsert({
+        'id': 'default_policy',
+        'max_active_tickets_per_doctor': _maxTicketsPerDoctor,
+        'max_active_tickets_global': _maxTicketsGlobal,
+        'min_minutes_between_same_day_tickets': int.tryParse(_conflictBufferCtrl.text.trim()) ?? 45,
+        'daily_cancellation_limit': int.tryParse(_dailyCancelLimitCtrl.text.trim()) ?? 3,
+        'is_conflict_check_enabled': _isConflictCheckEnabled,
+        'is_no_show_penalty_enabled': _isNoShowPenaltyEnabled,
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+
+      AdminAuditService.log(
+        actionType: 'تعديل سياسات حوكمة حجز التذاكر',
+        targetType: 'SYSTEM_POLICY',
+        targetName: 'قواعد حجز التذاكر ومنع التلاعب',
+        details: {
+          'max_per_doctor': _maxTicketsPerDoctor,
+          'max_global': _maxTicketsGlobal,
+          'conflict_buffer_min': _conflictBufferCtrl.text.trim(),
+          'daily_cancel_limit': _dailyCancelLimitCtrl.text.trim(),
+          'conflict_check': _isConflictCheckEnabled,
+          'no_show_penalty': _isNoShowPenaltyEnabled,
+        },
+      );
+
+      _loadAllSettings(silent: true);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🎉 تم حفظ سياسات حوكمة التذاكر بنجاح وتفعيلها في محرك الحجز فوراً! 🛡️'),
+            backgroundColor: AdminColors.success,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('خطأ أثناء حفظ سياسة التذاكر: $e'), backgroundColor: AdminColors.emergency),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSavingTicketPolicy = false);
     }
   }
 
@@ -871,6 +943,288 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                       ),
                     );
                   }),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // 3. كارت سياسات حوكمة حجز التذاكر ومنع التلاعب 🛡️
+          Container(
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              color: AdminColors.surfaceWhite,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AdminColors.cardBorderMint),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF16A34A).withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.security_rounded, color: Color(0xFF16A34A), size: 22),
+                        ),
+                        const SizedBox(width: 10),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'سياسات حوكمة حجز التذاكر ومنع التلاعب 🛡️',
+                              style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 16),
+                            ),
+                            Text(
+                              'ضبط حدود الحجوزات النشطة للمرضى لمنع احتكار الأدوار وضمان انضباط الطوابير',
+                              style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AdminColors.primaryDark,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      ),
+                      onPressed: _isSavingTicketPolicy ? null : _saveTicketPolicy,
+                      icon: _isSavingTicketPolicy
+                          ? const SizedBox(width: 16, height: 16, child: AdminShimmerBox.circular(size: 16))
+                          : const Icon(Icons.verified_user_rounded, size: 18),
+                      label: Text('حفظ وتطبيق قواعد الحوكمة 🚀', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+
+                // بنر القاعدة الذهبية
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0FDF4),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF86EFAC)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.verified_rounded, color: Color(0xFF16A34A), size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'قاعدة الحوكمة المعتمدة: تذكرة نشطة واحدة لكل طبيب، وسقف تذكرتين نشطتين في المنظومة ككل. تضمن هذه السياسة حماية أوقات الأطباء من الحجوزات الوهمية أو احتكار الأدوار، مع منح المريض الحقيقي مرونة زيارة تخصصين مختلفين في نفس اليوم أو الأسبوع.',
+                          style: GoogleFonts.cairo(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF14532D),
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+
+                // صف المحددات الأساسية (لكل طبيب + للمنظومة ككل)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // محدد سقف الطبيب الواحد
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: AdminColors.backgroundCanvas,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AdminColors.cardBorder),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '1. الحد الأقصى للتذاكر النشطة لكل طبيب 🩺',
+                              style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13, color: AdminColors.primaryDark),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'يمنع المريض من حجز أكثر من موعد عند نفس الطبيب (في أي من فروعه) حتى يُنهي الكشف الحالي أو يلغيه.',
+                              style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textSecondary),
+                            ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              children: [
+                                ChoiceChip(
+                                  label: Text('تذكرة واحدة فقط (الموصى به ⭐)', style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                                  selected: _maxTicketsPerDoctor == 1,
+                                  selectedColor: AdminColors.primaryDark,
+                                  labelStyle: TextStyle(color: _maxTicketsPerDoctor == 1 ? Colors.white : Colors.black87),
+                                  onSelected: (_) => setState(() => _maxTicketsPerDoctor = 1),
+                                ),
+                                ChoiceChip(
+                                  label: Text('تذكرتان', style: GoogleFonts.cairo(fontSize: 11.5)),
+                                  selected: _maxTicketsPerDoctor == 2,
+                                  selectedColor: AdminColors.primaryDark,
+                                  labelStyle: TextStyle(color: _maxTicketsPerDoctor == 2 ? Colors.white : Colors.black87),
+                                  onSelected: (_) => setState(() => _maxTicketsPerDoctor = 2),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(width: 14),
+
+                    // محدد السقف العام للمنظومة
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: AdminColors.backgroundCanvas,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AdminColors.cardBorder),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '2. السقف العام للتذاكر النشطة بالمنظومة 🌐',
+                              style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.teal.shade900),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'الحد الأقصى الإجمالي للتذاكر النشطة التي يمكن للمريض امتلاكها عبر المنظومة ككل في نفس الوقت.',
+                              style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textSecondary),
+                            ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              children: [
+                                ChoiceChip(
+                                  label: Text('تذكرة واحدة', style: GoogleFonts.cairo(fontSize: 11.5)),
+                                  selected: _maxTicketsGlobal == 1,
+                                  selectedColor: AdminColors.primaryDark,
+                                  labelStyle: TextStyle(color: _maxTicketsGlobal == 1 ? Colors.white : Colors.black87),
+                                  onSelected: (_) => setState(() => _maxTicketsGlobal = 1),
+                                ),
+                                ChoiceChip(
+                                  label: Text('تذكرتان (الموصى به ⭐)', style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                                  selected: _maxTicketsGlobal == 2,
+                                  selectedColor: AdminColors.primaryDark,
+                                  labelStyle: TextStyle(color: _maxTicketsGlobal == 2 ? Colors.white : Colors.black87),
+                                  onSelected: (_) => setState(() => _maxTicketsGlobal = 2),
+                                ),
+                                ChoiceChip(
+                                  label: Text('3 تذاكر', style: GoogleFonts.cairo(fontSize: 11.5)),
+                                  selected: _maxTicketsGlobal == 3,
+                                  selectedColor: AdminColors.primaryDark,
+                                  labelStyle: TextStyle(color: _maxTicketsGlobal == 3 ? Colors.white : Colors.black87),
+                                  onSelected: (_) => setState(() => _maxTicketsGlobal = 3),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                // صف الضوابط المتقدمة لمنع التلاعب
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('⏱️ فاصل الأمان لمنع تضارب المواعيد (بالدقائق):', style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 4),
+                          TextField(
+                            controller: _conflictBufferCtrl,
+                            keyboardType: TextInputType.number,
+                            style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold),
+                            decoration: InputDecoration(
+                              hintText: '45',
+                              suffixText: 'دقيقة',
+                              filled: true,
+                              fillColor: Colors.white,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('🔄 الحد الأقصى لإلغاء المريض اليومي:', style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 4),
+                          TextField(
+                            controller: _dailyCancelLimitCtrl,
+                            keyboardType: TextInputType.number,
+                            style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold),
+                            decoration: InputDecoration(
+                              hintText: '3',
+                              suffixText: 'مرات / يوم',
+                              filled: true,
+                              fillColor: Colors.white,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 10),
+
+                // مفاتيح الضوابط الآلية
+                Row(
+                  children: [
+                    Expanded(
+                      child: SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text('تفعيل التحقق من تضارب المواعيد في نفس اليوم', style: GoogleFonts.cairo(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                        subtitle: Text('يشترط فارقاً زمنياً كافياً بين كشفين في نفس اليوم لمنع الغياب الحتمي للمريض', style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textSecondary)),
+                        value: _isConflictCheckEnabled,
+                        activeThumbColor: AdminColors.primaryDark,
+                        activeTrackColor: AdminColors.accentMint,
+                        onChanged: (val) => setState(() => _isConflictCheckEnabled = val),
+                      ),
+                    ),
+                    const SizedBox(width: 20),
+                    Expanded(
+                      child: SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text('تفعيل عقوبات الغياب والتخلف عن الحضور (Strike System)', style: GoogleFonts.cairo(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                        subtitle: Text('تقليص سقف التذاكر النشطة للمريض عند تكرار الغياب دون إلغاء مسبق لحماية العيادات', style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textSecondary)),
+                        value: _isNoShowPenaltyEnabled,
+                        activeThumbColor: AdminColors.primaryDark,
+                        activeTrackColor: AdminColors.accentMint,
+                        onChanged: (val) => setState(() => _isNoShowPenaltyEnabled = val),
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
