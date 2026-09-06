@@ -249,10 +249,30 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
     final userId = req['user_id'] as String;
     final profile = req['profiles'] as Map<String, dynamic>? ?? {};
     final fullName = profile['full_name'] ?? 'الطبيب / الصيدلي';
-    final requestedMonths = req['months'] ?? 1;
+    final phone = profile['phone'] ?? '';
+    final gov = profile['governorate'] ?? 'مصر';
+    final role = (req['role'] ?? profile['role'] ?? 'DOCTOR').toString().toUpperCase();
+    final isDoctor = role == 'DOCTOR';
     final amount = req['amount'] ?? req['amount_paid'] ?? 350;
+    final planName = (req['plan_name'] as String? ?? '').trim();
+    final paymentMethod = req['payment_method'] ?? 'تحويل إلكتروني';
+    final senderNumber = req['sender_number'] as String?;
 
-    int selectedDays = (requestedMonths as int) * 30;
+    // استخراج عدد الأشهر الأصلي الذي حدده المشترك بدقة فائقة
+    int requestedMonths = 1;
+    if (planName.contains('12') || (planName.contains('سنوية') && !planName.contains('نصف') && !planName.contains('ربع'))) {
+      requestedMonths = 12;
+    } else if (planName.contains('6') || planName.contains('نصف سنوي')) {
+      requestedMonths = 6;
+    } else if (planName.contains('3') || planName.contains('ربع سنوي')) {
+      requestedMonths = 3;
+    } else if (planName.contains('1') || planName.contains('شهر واحد') || planName.contains('شهرية')) {
+      requestedMonths = 1;
+    } else if (req['months'] != null) {
+      requestedMonths = (req['months'] as num).toInt();
+    }
+
+    int selectedDays = requestedMonths == 12 ? 365 : (requestedMonths * 30);
     DateTime calculatedExpiryDate = DateTime.now().add(Duration(days: selectedDays));
     final daysCtrl = TextEditingController(text: selectedDays.toString());
     final notesCtrl = TextEditingController();
@@ -270,30 +290,133 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
             ],
           ),
           content: SizedBox(
-            width: 520,
+            width: 540,
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // بيانات الطبيب والطلب
+                  // بيانات الطبيب / الصيدلي والطلب الأصلي المقدم
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: AdminColors.accentMintLight,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AdminColors.primaryDark.withValues(alpha: 0.15)),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AdminColors.cardBorderMint),
                     ),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.person_rounded, color: AdminColors.primaryDark, size: 24),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                        Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 20,
+                              backgroundColor: AdminColors.primaryDark.withValues(alpha: 0.1),
+                              child: Icon(
+                                isDoctor ? Icons.medical_services_rounded : Icons.local_pharmacy_rounded,
+                                color: AdminColors.primaryDark,
+                                size: 22,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        fullName,
+                                        style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 14.5, color: AdminColors.primaryDark),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: AdminColors.cardBorderMint),
+                                        ),
+                                        child: Text(
+                                          isDoctor ? 'طبيب 🩺' : 'صيدلية 💊',
+                                          style: GoogleFonts.cairo(fontSize: 10.5, fontWeight: FontWeight.bold, color: AdminColors.primaryDark),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Text(
+                                    '📞 $phone • 📍 $gov • $paymentMethod ${senderNumber != null && senderNumber.isNotEmpty ? "($senderNumber)" : ""}',
+                                    style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textSecondary),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        // كارت بيانات الباقة والمدة الأولية التي حددها المشترك
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AdminColors.primaryDark.withValues(alpha: 0.15)),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(fullName, style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 14, color: AdminColors.primaryDark)),
-                              Text('المبلغ المسدد: $amount ج.م • المدة المطلوبة: $requestedMonths شهر', style: GoogleFonts.cairo(fontSize: 12, color: Colors.grey.shade800)),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        const Icon(Icons.bookmark_added_rounded, size: 16, color: AdminColors.primaryDark),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'الباقة والمدة التي طلبها المشترك:',
+                                          style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textSecondary, fontWeight: FontWeight.bold),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 4,
+                                      crossAxisAlignment: WrapCrossAlignment.center,
+                                      children: [
+                                        Text(
+                                          planName.isNotEmpty ? planName : 'باقة $requestedMonths شهر',
+                                          style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 13.5, color: AdminColors.primaryDark),
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: AdminColors.accentMintLight,
+                                            borderRadius: BorderRadius.circular(6),
+                                            border: Border.all(color: AdminColors.cardBorderMint),
+                                          ),
+                                          child: Text(
+                                            'المدة: $requestedMonths شهر (${requestedMonths == 12 ? 365 : requestedMonths * 30} يوم)',
+                                            style: GoogleFonts.cairo(fontSize: 11, fontWeight: FontWeight.bold, color: AdminColors.primaryDark),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text('المبلغ المسدد:', style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textSecondary)),
+                                  Text(
+                                    '$amount ج.م',
+                                    style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 16, color: const Color(0xFF047857)),
+                                  ),
+                                ],
+                              ),
                             ],
                           ),
                         ),
@@ -337,48 +460,73 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
                   ),
 
                   const SizedBox(height: 16),
-                  Text('1. خيارات المدد السريعة للتمديد:', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                  Text('1. خيارات المدد السريعة للتمديد (يمكنك التعديل أو إبقاء اختيار المشترك):', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12.5)),
                   const SizedBox(height: 8),
 
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _buildDurationChip('شهر واحد (+30 يوم)', 30, selectedDays, (d) {
-                        setDialogState(() {
-                          selectedDays = d;
-                          daysCtrl.text = d.toString();
-                          calculatedExpiryDate = DateTime.now().add(Duration(days: d));
-                        });
-                      }),
-                      _buildDurationChip('شهرين (+60 يوم)', 60, selectedDays, (d) {
-                        setDialogState(() {
-                          selectedDays = d;
-                          daysCtrl.text = d.toString();
-                          calculatedExpiryDate = DateTime.now().add(Duration(days: d));
-                        });
-                      }),
-                      _buildDurationChip('3 أشهر (+90 يوم)', 90, selectedDays, (d) {
-                        setDialogState(() {
-                          selectedDays = d;
-                          daysCtrl.text = d.toString();
-                          calculatedExpiryDate = DateTime.now().add(Duration(days: d));
-                        });
-                      }),
-                      _buildDurationChip('6 أشهر (+180 يوم)', 180, selectedDays, (d) {
-                        setDialogState(() {
-                          selectedDays = d;
-                          daysCtrl.text = d.toString();
-                          calculatedExpiryDate = DateTime.now().add(Duration(days: d));
-                        });
-                      }),
-                      _buildDurationChip('سنة كاملة (+365 يوم)', 365, selectedDays, (d) {
-                        setDialogState(() {
-                          selectedDays = d;
-                          daysCtrl.text = d.toString();
-                          calculatedExpiryDate = DateTime.now().add(Duration(days: d));
-                        });
-                      }),
+                      _buildDurationChip(
+                        'شهر واحد (+30 يوم)${requestedMonths == 1 ? " ⭐️ طلب المشترك" : ""}',
+                        30,
+                        selectedDays,
+                        (d) {
+                          setDialogState(() {
+                            selectedDays = d;
+                            daysCtrl.text = d.toString();
+                            calculatedExpiryDate = DateTime.now().add(Duration(days: d));
+                          });
+                        },
+                      ),
+                      _buildDurationChip(
+                        'شهرين (+60 يوم)${requestedMonths == 2 ? " ⭐️ طلب المشترك" : ""}',
+                        60,
+                        selectedDays,
+                        (d) {
+                          setDialogState(() {
+                            selectedDays = d;
+                            daysCtrl.text = d.toString();
+                            calculatedExpiryDate = DateTime.now().add(Duration(days: d));
+                          });
+                        },
+                      ),
+                      _buildDurationChip(
+                        '3 أشهر (+90 يوم)${requestedMonths == 3 ? " ⭐️ طلب المشترك" : ""}',
+                        90,
+                        selectedDays,
+                        (d) {
+                          setDialogState(() {
+                            selectedDays = d;
+                            daysCtrl.text = d.toString();
+                            calculatedExpiryDate = DateTime.now().add(Duration(days: d));
+                          });
+                        },
+                      ),
+                      _buildDurationChip(
+                        '6 أشهر (+180 يوم)${requestedMonths == 6 ? " ⭐️ طلب المشترك" : ""}',
+                        180,
+                        selectedDays,
+                        (d) {
+                          setDialogState(() {
+                            selectedDays = d;
+                            daysCtrl.text = d.toString();
+                            calculatedExpiryDate = DateTime.now().add(Duration(days: d));
+                          });
+                        },
+                      ),
+                      _buildDurationChip(
+                        'سنة كاملة (+365 يوم)${requestedMonths == 12 ? " ⭐️ طلب المشترك" : ""}',
+                        365,
+                        selectedDays,
+                        (d) {
+                          setDialogState(() {
+                            selectedDays = d;
+                            daysCtrl.text = d.toString();
+                            calculatedExpiryDate = DateTime.now().add(Duration(days: d));
+                          });
+                        },
+                      ),
                     ],
                   ),
 
