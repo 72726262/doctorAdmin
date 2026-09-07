@@ -18,7 +18,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:doctor_admin/features/auth/presentation/screens/admin_login_screen.dart';
 import 'package:doctor_admin/features/analytics/presentation/screens/analytics_bi_screen.dart';
 import 'package:doctor_admin/features/settings/presentation/screens/admin_settings_screen.dart';
-import 'package:doctor_admin/core/widgets/create_admin_dialog.dart';
+import 'package:doctor_admin/features/admin_management/presentation/screens/admin_management_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -47,6 +47,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     'إدارة الإعلانات والبنرات الممولة 📢',
     'الإذاعة والتنبيهات العامة وإشعارات المنظومة',
     'الأمان ومكافحة الاحتيال وسجل العمليات',
+    'إدارة وحوكمة فريق المشرفين 👥',
     'التحليلات الاستراتيجية والخرائط الحرارية',
     'طرق السداد وإعدادات النظام',
   ];
@@ -220,8 +221,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       _buildSidebarItem(7, 'إدارة الإعلانات والترويج 📢', Icons.campaign_rounded),
                       _buildSidebarItem(8, 'الإذاعة والتنبيهات العامة', Icons.notifications_active_rounded),
                       _buildSidebarItem(9, 'الأمان وسجل العمليات 🛡️', Icons.security_rounded),
-                      _buildSidebarItem(10, 'التحليلات الاستراتيجية BI', Icons.insights_rounded),
-                      _buildSidebarItem(11, 'طرق السداد وإعدادات النظام', Icons.settings_rounded),
+                      _buildSidebarItem(10, 'فريق المشرفين والمسؤولين 👥', Icons.admin_panel_settings_rounded),
+                      _buildSidebarItem(11, 'التحليلات الاستراتيجية BI', Icons.insights_rounded),
+                      _buildSidebarItem(12, 'طرق السداد وإعدادات النظام', Icons.settings_rounded),
                     ],
                   ),
                 ),
@@ -314,21 +316,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             ),
                           ),
                           const SizedBox(width: 10),
-                          ElevatedButton.icon(
-                            onPressed: () => showCreateAdminAccountDialog(context),
-                            icon: const Icon(Icons.person_add_alt_1_rounded, size: 15, color: Colors.white),
-                            label: const Text(
-                              'إضافة أدمن جديد ➕',
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AdminColors.primaryDark,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                              elevation: 0,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
                           IconButton(
                             icon: const Icon(Icons.refresh_rounded, color: AdminColors.primaryDark, size: 20),
                             tooltip: 'تحديث البيانات فوراً',
@@ -361,6 +348,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       const PromotionalAdsScreen(),
                       const AnnouncementsScreen(),
                       const AuditSecurityScreen(),
+                      const AdminManagementScreen(),
                       const AnalyticsBiScreen(),
                       const AdminSettingsScreen(),
                     ],

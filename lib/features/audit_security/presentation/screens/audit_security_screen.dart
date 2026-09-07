@@ -6,7 +6,6 @@ import 'package:doctor_admin/core/supabase_config.dart';
 import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
 import 'package:doctor_admin/core/widgets/admin_modern_tab_bar.dart';
 import 'package:doctor_admin/core/services/admin_realtime_manager.dart';
-import 'package:doctor_admin/core/widgets/create_admin_dialog.dart';
 
 class AuditSecurityScreen extends StatefulWidget {
   const AuditSecurityScreen({super.key});
@@ -206,24 +205,6 @@ class _AuditSecurityScreenState extends State<AuditSecurityScreen> {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  ElevatedButton.icon(
-                    onPressed: () => showCreateAdminAccountDialog(
-                      context,
-                      onAdminCreated: () => _fetchAuditLogs(silent: true),
-                    ),
-                    icon: const Icon(Icons.person_add_alt_1_rounded, size: 16, color: Colors.white),
-                    label: Text(
-                      'إنشاء حساب مسؤول جديد ➕',
-                      style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AdminColors.primaryDark,
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      elevation: 0,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
                   IconButton(
                     tooltip: 'تحديث السجل الآن',
                     icon: const Icon(Icons.refresh_rounded, color: AdminColors.primaryDark),
