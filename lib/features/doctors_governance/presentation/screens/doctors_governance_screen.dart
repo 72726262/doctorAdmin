@@ -7,6 +7,7 @@ import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
 import 'package:doctor_admin/core/widgets/admin_modern_tab_bar.dart';
 import 'package:doctor_admin/core/services/admin_realtime_manager.dart';
 import 'package:doctor_admin/core/services/admin_audit_service.dart';
+import 'package:doctor_admin/core/constants/specialties_data.dart';
 
 class DoctorsGovernanceScreen extends StatefulWidget {
   const DoctorsGovernanceScreen({super.key});
@@ -25,6 +26,7 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
   List<Map<String, dynamic>> _doctors = [];
   String _searchQuery = '';
   String _governorateFilter = 'الكل';
+  String _specialtyFilter = 'الكل';
   int _selectedStatusTabIndex = 0; // 0: الكل, 1: ساري, 2: ينتهي قريباً, 3: منتهي, 4: مجمد
 
   @override
@@ -2316,6 +2318,7 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
       final subInfo = _getSubscriptionInfo(d);
 
       final matchGov = _governorateFilter == 'الكل' || gov == _governorateFilter;
+      final matchSpec = _specialtyFilter == 'الكل' || SpecialtiesData.matches(specialty, _specialtyFilter);
 
       bool matchStatus = true;
       if (_selectedStatusTabIndex == 1) {
@@ -2333,7 +2336,7 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
           specialty.contains(_searchQuery) ||
           gov.contains(_searchQuery);
 
-      return matchGov && matchStatus && matchSearch;
+      return matchGov && matchSpec && matchStatus && matchSearch;
     }).toList();
 
     return SingleChildScrollView(
@@ -2482,13 +2485,80 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                   child: DropdownButton<String>(
                     value: _governorateFilter,
                     style: GoogleFonts.cairo(color: AdminColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
-                    items: ['الكل', 'القاهرة', 'الجيزة', 'الإسكندرية', 'الدقهلية', 'الغربية', 'الشرقية', 'المنوفية', 'البحيرة'].map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                    items: ['الكل', 'القاهرة', 'الجيزة', 'الإسكندرية', 'الدقهلية', 'الغربية', 'الشرقية', 'المنوفية', 'البحيرة'].map((g) => DropdownMenuItem(value: g, child: Text(g == 'الكل' ? 'كل المحافظات 📍' : '📍 $g'))).toList(),
                     onChanged: (val) => setState(() => _governorateFilter = val ?? 'الكل'),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+
+              // Specialty Filter
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
+                  ],
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _specialtyFilter,
+                    style: GoogleFonts.cairo(color: AdminColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
+                    items: ['الكل', ...SpecialtiesData.namesAr]
+                        .map((s) => DropdownMenuItem(
+                              value: s,
+                              child: Text(s == 'الكل' ? 'كل التخصصات 🩺' : s),
+                            ))
+                        .toList(),
+                    onChanged: (val) => setState(() => _specialtyFilter = val ?? 'الكل'),
                   ),
                 ),
               ),
             ],
           ),
+
+          // شريط إحصائي لحظي لتوتال الأطباء وحالة الفلترة
+          if (_governorateFilter != 'الكل' || _specialtyFilter != 'الكل' || _searchQuery.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFCBD5E1)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.filter_alt_rounded, size: 18, color: AdminColors.primaryDark),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'إجمالي الأطباء: ${_doctors.length} | المعروض حالياً: ${filtered.length} طبيب'
+                      '${_governorateFilter != 'الكل' ? ' • المحافظة: $_governorateFilter' : ''}'
+                      '${_specialtyFilter != 'الكل' ? ' • التخصص: $_specialtyFilter' : ''}'
+                      '${_searchQuery.isNotEmpty ? ' • بحث: "$_searchQuery"' : ''}',
+                      style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold, color: AdminColors.textPrimary),
+                    ),
+                  ),
+                  TextButton.icon(
+                    style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                    onPressed: () {
+                      setState(() {
+                        _governorateFilter = 'الكل';
+                        _specialtyFilter = 'الكل';
+                        _searchQuery = '';
+                      });
+                    },
+                    icon: const Icon(Icons.clear_all_rounded, size: 16, color: Colors.red),
+                    label: Text('إلغاء الفلاتر', style: GoogleFonts.cairo(fontSize: 11.5, color: Colors.red, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+            ),
+          ],
 
           const SizedBox(height: 14),
 

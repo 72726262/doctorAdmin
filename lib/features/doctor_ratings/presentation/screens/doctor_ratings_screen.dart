@@ -6,6 +6,7 @@ import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
 import 'package:doctor_admin/core/widgets/admin_modern_tab_bar.dart';
 import 'package:doctor_admin/core/services/admin_realtime_manager.dart';
 import 'package:doctor_admin/core/services/admin_audit_service.dart';
+import 'package:doctor_admin/core/constants/specialties_data.dart';
 
 /// 🌟 قسم إدارة وحوكمة تقييمات الأطباء والأطباء الموصى بهم (Doctor Ratings Governance)
 /// يتيح للأدمن التحكم الكامل في تقييمات الأطباء، فرز وترتيب المتصدرين حسب المحافظة،
@@ -28,6 +29,7 @@ class _DoctorRatingsScreenState extends State<DoctorRatingsScreen> {
 
   String _searchQuery = '';
   String _selectedGovernorate = 'الكل';
+  String _selectedSpecialty = 'الكل';
   int _selectedRatingFilter = 0; // 0: الكل, 1: 5.0 ⭐, 2: 4.5+ ⭐, 3: 4.0+ ⭐, 4: أقل من 4.0
   int _sortBy = 0; // 0: الأعلى تقييماً أولاً, 1: الأكثر مراجعات, 2: الاسم أبجدياً
 
@@ -156,6 +158,14 @@ class _DoctorRatingsScreenState extends State<DoctorRatingsScreen> {
         final branches = (d['branches'] as List?) ?? [];
         final hasBranchInGov = branches.any((b) => b['governorate'] == _selectedGovernorate);
         return docGov == _selectedGovernorate || hasBranchInGov;
+      }).toList();
+    }
+
+    // 2. فلتر التخصص الطبي الموحد
+    if (_selectedSpecialty != 'الكل') {
+      list = list.where((d) {
+        final spec = d['specialty'] as String? ?? '';
+        return SpecialtiesData.matches(spec, _selectedSpecialty);
       }).toList();
     }
 
@@ -882,6 +892,21 @@ class _DoctorRatingsScreenState extends State<DoctorRatingsScreen> {
     );
   }
 
+  String _getRatingFilterLabel(int filter) {
+    switch (filter) {
+      case 1:
+        return '5.0 نجوم ⭐';
+      case 2:
+        return '4.5+ ممتاز ⭐';
+      case 3:
+        return '4.0 - 4.4 ⭐';
+      case 4:
+        return 'أقل من 4.0 ⭐';
+      default:
+        return 'الكل';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final filtered = _getFilteredDoctors();
@@ -1079,6 +1104,33 @@ class _DoctorRatingsScreenState extends State<DoctorRatingsScreen> {
                         ),
                         const SizedBox(width: 12),
 
+                        // Specialty filter
+                        Expanded(
+                          flex: 2,
+                          child: Container(
+                            height: 48,
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: AdminColors.backgroundCanvas,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: AdminColors.cardBorder),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: _selectedSpecialty,
+                                isExpanded: true,
+                                icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AdminColors.textSecondary),
+                                style: GoogleFonts.cairo(color: AdminColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
+                                items: ['الكل', ...SpecialtiesData.namesAr]
+                                    .map((s) => DropdownMenuItem(value: s, child: Text(s == 'الكل' ? 'كل التخصصات 🩺' : s)))
+                                    .toList(),
+                                onChanged: (val) => setState(() => _selectedSpecialty = val ?? 'الكل'),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+
                         // Sort order selector
                         Expanded(
                           flex: 2,
@@ -1108,6 +1160,48 @@ class _DoctorRatingsScreenState extends State<DoctorRatingsScreen> {
                         ),
                       ],
                     ),
+
+                    // شريط إحصائي لحظي لتوتال الأطباء وحالة الفلترة
+                    if (_selectedGovernorate != 'الكل' || _selectedSpecialty != 'الكل' || _selectedRatingFilter != 0 || _searchQuery.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFCBD5E1)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.filter_alt_rounded, size: 18, color: AdminColors.primaryDark),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'إجمالي الأطباء: ${_doctors.length} | المطابق للفلترة: ${filtered.length} طبيب'
+                                '${_selectedGovernorate != 'الكل' ? ' • المحافظة: $_selectedGovernorate' : ''}'
+                                '${_selectedSpecialty != 'الكل' ? ' • التخصص: $_selectedSpecialty' : ''}'
+                                '${_selectedRatingFilter != 0 ? ' • الفئة: ${_getRatingFilterLabel(_selectedRatingFilter)}' : ''}'
+                                '${_searchQuery.isNotEmpty ? ' • بحث: "$_searchQuery"' : ''}',
+                                style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold, color: AdminColors.textPrimary),
+                              ),
+                            ),
+                            TextButton.icon(
+                              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                              onPressed: () {
+                                setState(() {
+                                  _selectedGovernorate = 'الكل';
+                                  _selectedSpecialty = 'الكل';
+                                  _selectedRatingFilter = 0;
+                                  _searchQuery = '';
+                                });
+                              },
+                              icon: const Icon(Icons.clear_all_rounded, size: 16, color: Colors.red),
+                              label: Text('إلغاء الفلاتر', style: GoogleFonts.cairo(fontSize: 11.5, color: Colors.red, fontWeight: FontWeight.bold)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
 
                     const SizedBox(height: 12),
 
