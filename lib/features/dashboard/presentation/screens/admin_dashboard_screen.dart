@@ -167,7 +167,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'شفاء | الإدارة العليا',
+                              'كشفك | الإدارة العليا',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 15,

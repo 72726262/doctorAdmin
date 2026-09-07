@@ -190,7 +190,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                       // Platform Title
                       Center(
                         child: Text(
-                          'منظومة شفاء الطبية',
+                          'منظومة كشفك الطبية',
                           style: GoogleFonts.cairo(
                             color: Colors.white,
                             fontSize: 24,

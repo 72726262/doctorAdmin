@@ -24,7 +24,7 @@ class DoctorAdminApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'شفاء | لوحة تحكم الإدارة',
+      title: 'كشفك | لوحة تحكم الإدارة',
       debugShowCheckedModeBanner: false,
       locale: const Locale('ar'),
       supportedLocales: const [
