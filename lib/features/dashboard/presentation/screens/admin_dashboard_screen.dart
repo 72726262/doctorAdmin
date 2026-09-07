@@ -302,7 +302,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                 Icon(Icons.circle, color: AdminColors.success, size: 8),
                                 SizedBox(width: 6),
                                 Text(
-                                  'تحديث لحظي نشط < 40ms 🟢',
+                                  'تحديث لحظي نشط 🟢',
                                   style: TextStyle(
                                     color: AdminColors.success,
                                     fontSize: 11,
@@ -470,55 +470,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             ),
           ),
 
-          const SizedBox(height: 18),
-
-          // 2. بطاقة نبض الخادم وقاعدة البيانات المباشرة (Server & Database Health)
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AdminColors.surfaceWhite,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AdminColors.cardBorder),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.cloud_done_rounded, color: AdminColors.success, size: 20),
-                    const SizedBox(width: 8),
-                    Text(
-                      'خادم Hetzner VPS (178.105.236.62) • PostgreSQL 17 • تخزين الصور Imgproxy 🚀',
-                      style: GoogleFonts.cairo(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: AdminColors.textPrimary,
-                      ),
-                    ),
-                  ],
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: AdminColors.accentMintLight,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    'استجابة الخادم: 18ms 🟢',
-                    style: GoogleFonts.cairo(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: AdminColors.primaryDark,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
           const SizedBox(height: 20),
 
-          // 3. كروت مؤشرات الأداء الحية لليوم (Today's Live Pulse)
+          // 2. كروت مؤشرات الأداء الحية لليوم (Today's Live Pulse)
           Text(
             'مؤشرات المنظومة في هذه اللحظة (Live Pulse):',
             style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 14, color: AdminColors.textPrimary),
