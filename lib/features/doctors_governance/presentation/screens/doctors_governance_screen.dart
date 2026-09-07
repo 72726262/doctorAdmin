@@ -381,7 +381,7 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                                     style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15),
                                   ),
                                   Text(
-                                    'يؤثر هذا التقييم على صدارة الطبيب في "الأطباء الموصى بهم"',
+                                    'يؤثر هذا التقييم على صدارة الطبيب في "الأطباء الأعلى تقييماً"',
                                     style: GoogleFonts.cairo(color: Colors.white70, fontSize: 11.5),
                                   ),
                                 ],
@@ -2699,7 +2699,7 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                                     // زر تعديل تقييم الطبيب ⭐
                                     IconButton(
                                       icon: const Icon(Icons.star_rounded, color: Colors.amber, size: 22),
-                                      tooltip: 'تعديل تقييم الطبيب وحوكمة الموصى بهم ⭐',
+                                      tooltip: 'تعديل تقييم الطبيب وحوكمة الأعلى تقييماً ⭐',
                                       onPressed: () => _showEditDoctorRatingDialog(doc),
                                     ),
                                     const SizedBox(width: 4),

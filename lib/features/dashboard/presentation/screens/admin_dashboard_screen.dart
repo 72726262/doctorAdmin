@@ -40,7 +40,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     'نظرة عامة ومؤشرات المنصة',
     'غرفة العمليات ورادار الطوابير اللحظي',
     'حوكمة وإدارة الأطباء والعيادات',
-    'إدارة تقييمات الأطباء والموصى بهم ⭐',
+    'إدارة تقييمات الأطباء والأعلى تقييماً ⭐',
     'رقابة الصيدليات وتداول الروشتات',
     'طلبات الاعتماد والانضمام الجديدة',
     'إيصالات واشتراكات الأطباء',
@@ -202,7 +202,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       _buildSidebarItem(0, 'نظرة عامة ومؤشرات المنصة', Icons.dashboard_rounded),
                       _buildSidebarItem(1, 'غرفة العمليات ورادار الطوابير 📡', Icons.radar_rounded),
                       _buildSidebarItem(2, 'حوكمة الأطباء والعيادات', Icons.medical_services_rounded),
-                      _buildSidebarItem(3, 'إدارة تقييمات الأطباء والموصى بهم ⭐', Icons.stars_rounded),
+                      _buildSidebarItem(3, 'إدارة تقييمات الأطباء والأعلى تقييماً ⭐', Icons.stars_rounded),
                       _buildSidebarItem(4, 'رقابة الصيدليات وتداول الروشتات', Icons.local_pharmacy_rounded),
                       _buildSidebarItem(
                         5,

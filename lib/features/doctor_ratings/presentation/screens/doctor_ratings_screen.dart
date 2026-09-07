@@ -287,7 +287,7 @@ class _DoctorRatingsScreenState extends State<DoctorRatingsScreen> {
                                     ),
                                   ),
                                   Text(
-                                    'يؤثر هذا التقييم مباشرة على صدارة الطبيب في قسم "الأطباء الموصى بهم"',
+                                    'يؤثر هذا التقييم مباشرة على صدارة الطبيب في قسم "الأطباء الأعلى تقييماً"',
                                     style: GoogleFonts.cairo(
                                       color: Colors.white70,
                                       fontSize: 11.5,
@@ -397,7 +397,7 @@ class _DoctorRatingsScreenState extends State<DoctorRatingsScreen> {
                               spacing: 8,
                               runSpacing: 8,
                               children: [
-                                _buildPresetChip(5.0, '⭐ 5.0 (نخبة وموصى به)', tempRating, (val) {
+                                _buildPresetChip(5.0, '⭐ 5.0 (نخبة والأعلى تقييماً)', tempRating, (val) {
                                   setModalState(() {
                                     tempRating = val;
                                     ratingController.text = val.toStringAsFixed(1);
@@ -627,7 +627,7 @@ class _DoctorRatingsScreenState extends State<DoctorRatingsScreen> {
                                       const Icon(Icons.phone_android_rounded, color: AdminColors.success, size: 18),
                                       const SizedBox(width: 6),
                                       Text(
-                                        'معاينة حية كما سيظهر في تطبيق المريض (الأطباء الموصى بهم 🩺):',
+                                        'معاينة حية كما سيظهر في تطبيق المريض (الأطباء الأعلى تقييماً ⭐):',
                                         style: GoogleFonts.cairo(
                                           fontWeight: FontWeight.w800,
                                           fontSize: 12,
@@ -934,7 +934,7 @@ class _DoctorRatingsScreenState extends State<DoctorRatingsScreen> {
                           ),
                           const SizedBox(width: 10),
                           Text(
-                            'إدارة تقييمات الأطباء والأطباء الموصى بهم ⭐',
+                            'إدارة تقييمات الأطباء والأعلى تقييماً ⭐',
                             style: GoogleFonts.cairo(
                               fontSize: 18,
                               fontWeight: FontWeight.w900,
@@ -945,7 +945,7 @@ class _DoctorRatingsScreenState extends State<DoctorRatingsScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'حوكمة دقيقة لتقييمات الأطباء والتحكم في ترتيب قسم "الأطباء الموصى بهم" في تطبيق المريض حسب كل محافظة',
+                        'حوكمة دقيقة لتقييمات الأطباء والتحكم في ترتيب قسم "الأطباء الأعلى تقييماً" في تطبيق المريض حسب كل محافظة',
                         style: GoogleFonts.cairo(fontSize: 12.5, color: AdminColors.textSecondary),
                       ),
                     ],
@@ -1222,7 +1222,7 @@ class _DoctorRatingsScreenState extends State<DoctorRatingsScreen> {
                                         ),
                                         child: Text(
                                           rank == 1
-                                              ? '#1 متصدر الموصى بهم في $targetGov 🏆'
+                                              ? '#1 متصدر الأعلى تقييماً في $targetGov 🏆'
                                               : rank == 2
                                                   ? '#2 في $targetGov 🥈'
                                                   : '#3 في $targetGov 🥉',
@@ -1300,7 +1300,7 @@ class _DoctorRatingsScreenState extends State<DoctorRatingsScreen> {
                                 Text('الظهور للمريض:', style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textSecondary)),
                                 const SizedBox(height: 2),
                                 Text(
-                                  rank <= 5 ? 'ضمن صدارة الموصى بهم 🩺' : 'ترتيب رقم $rank بالمحافظة',
+                                  rank <= 5 ? 'ضمن صدارة الأعلى تقييماً ⭐' : 'ترتيب رقم $rank بالمحافظة',
                                   style: GoogleFonts.cairo(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
