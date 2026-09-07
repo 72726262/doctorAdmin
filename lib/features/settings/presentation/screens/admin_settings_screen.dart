@@ -40,6 +40,15 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   bool _isNoShowPenaltyEnabled = true;
   bool _isSavingTicketPolicy = false;
 
+  // وحدات تحكم قنوات الدعم الفني والتواصل الرسمي الموحد 🎧
+  final _supportWhatsAppCtrl = TextEditingController(text: '01012345678');
+  final _supportWhatsAppMsgCtrl = TextEditingController(text: 'مرحباً، أود الاستفسار والتواصل بخصوص منصة شفاء 💚');
+  final _supportPhoneCtrl = TextEditingController(text: '01012345678');
+  final _supportEmailCtrl = TextEditingController(text: 'support@shefaa.com');
+  final _supportWorkingHoursCtrl = TextEditingController(text: 'فريق الدعم الفني متاح يومياً لمساعدتكم على مدار الساعة 24/7');
+  bool _isSupportActive = true;
+  bool _isSavingSupport = false;
+
   @override
   void initState() {
     super.initState();
@@ -59,6 +68,11 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     _pharm12MonthCtrl.dispose();
     _conflictBufferCtrl.dispose();
     _dailyCancelLimitCtrl.dispose();
+    _supportWhatsAppCtrl.dispose();
+    _supportWhatsAppMsgCtrl.dispose();
+    _supportPhoneCtrl.dispose();
+    _supportEmailCtrl.dispose();
+    _supportWorkingHoursCtrl.dispose();
     super.dispose();
   }
 
@@ -70,6 +84,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
       final methodsRes = await _client.from('payment_methods').select().order('created_at', ascending: true);
       final pricingRes = await _client.from('subscription_pricing_config').select();
       final policyRes = await _client.from('system_ticket_policy_config').select().eq('id', 'default_policy').maybeSingle();
+      final supportRes = await _client.from('system_support_contacts').select().eq('id', 'default_support').maybeSingle();
 
       if (mounted) {
         setState(() {
@@ -98,6 +113,15 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             _dailyCancelLimitCtrl.text = (policyRes['daily_cancellation_limit'] ?? 3).toString();
             _isConflictCheckEnabled = policyRes['is_conflict_check_enabled'] as bool? ?? true;
             _isNoShowPenaltyEnabled = policyRes['is_no_show_penalty_enabled'] as bool? ?? true;
+          }
+
+          if (supportRes != null) {
+            _supportWhatsAppCtrl.text = supportRes['whatsapp_phone'] ?? '01012345678';
+            _supportWhatsAppMsgCtrl.text = supportRes['whatsapp_message'] ?? 'مرحباً، أود الاستفسار والتواصل بخصوص منصة شفاء 💚';
+            _supportPhoneCtrl.text = supportRes['phone_call'] ?? '01012345678';
+            _supportEmailCtrl.text = supportRes['email'] ?? 'support@shefaa.com';
+            _supportWorkingHoursCtrl.text = supportRes['working_hours_note'] ?? 'فريق الدعم الفني متاح يومياً لمساعدتكم على مدار الساعة 24/7';
+            _isSupportActive = supportRes['is_active'] as bool? ?? true;
           }
 
           _isLoading = false;
@@ -155,6 +179,54 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
       }
     } finally {
       if (mounted) setState(() => _isSavingTicketPolicy = false);
+    }
+  }
+
+  Future<void> _saveSupportContacts() async {
+    setState(() => _isSavingSupport = true);
+    try {
+      await _client.from('system_support_contacts').upsert({
+        'id': 'default_support',
+        'whatsapp_phone': _supportWhatsAppCtrl.text.trim(),
+        'whatsapp_message': _supportWhatsAppMsgCtrl.text.trim(),
+        'phone_call': _supportPhoneCtrl.text.trim(),
+        'email': _supportEmailCtrl.text.trim(),
+        'working_hours_note': _supportWorkingHoursCtrl.text.trim(),
+        'is_active': _isSupportActive,
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+
+      AdminAuditService.log(
+        actionType: 'تعديل قنوات الدعم الفني والتواصل',
+        targetType: 'SUPPORT_CONTACTS',
+        targetName: 'قنوات الدعم الموحدة',
+        details: {
+          'whatsapp': _supportWhatsAppCtrl.text.trim(),
+          'phone': _supportPhoneCtrl.text.trim(),
+          'email': _supportEmailCtrl.text.trim(),
+          'is_active': _isSupportActive,
+        },
+      );
+
+      _loadAllSettings(silent: true);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🎉 تم حفظ وتحديث قنوات الدعم الفني بنجاح وتطبيقها لكافة المستخدمين! 🎧'),
+            backgroundColor: AdminColors.success,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('خطأ أثناء حفظ قنوات الدعم: $e'), backgroundColor: AdminColors.emergency),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSavingSupport = false);
     }
   }
 
@@ -1221,6 +1293,269 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                         activeThumbColor: AdminColors.primaryDark,
                         activeTrackColor: AdminColors.accentMint,
                         onChanged: (val) => setState(() => _isNoShowPenaltyEnabled = val),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // 4. كارت قنوات الدعم الفني والتواصل الرسمي الموحد 🎧 (Official Support & Contact Channels)
+          Container(
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              color: AdminColors.surfaceWhite,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AdminColors.cardBorderMint),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0284C7).withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.support_agent_rounded, color: Color(0xFF0284C7), size: 24),
+                        ),
+                        const SizedBox(width: 10),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'قنوات الدعم الفني والتواصل الرسمي الموحد 🎧',
+                              style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 16),
+                            ),
+                            Text(
+                              'تظهر هذه البيانات للمريض، الطبيب، الصيدلية، والسكرتيرة مع التحويل المباشر للواتساب والاتصال والإيميل',
+                              style: GoogleFonts.cairo(fontSize: 11.5, color: AdminColors.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0284C7),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: _isSavingSupport ? null : _saveSupportContacts,
+                      icon: _isSavingSupport
+                          ? const SizedBox(width: 16, height: 16, child: AdminShimmerBox.circular(size: 16))
+                          : const Icon(Icons.save_rounded, size: 18),
+                      label: Text('حفظ قنوات الدعم الفني 💾', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+
+                // سويتش التفعيل العام
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: _isSupportActive ? const Color(0xFFF0FDF4) : Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: _isSupportActive ? const Color(0xFFBBF7D0) : Colors.grey.shade300),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            _isSupportActive ? Icons.check_circle_rounded : Icons.pause_circle_rounded,
+                            color: _isSupportActive ? AdminColors.success : Colors.grey,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _isSupportActive ? 'قنوات الدعم الفني نشطة وتظهر لجميع المستخدمين في التطبيق' : 'قنوات الدعم الفني معطلة ومخفية مؤقتاً',
+                            style: GoogleFonts.cairo(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.bold,
+                              color: _isSupportActive ? AdminColors.success : Colors.grey.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Switch(
+                        value: _isSupportActive,
+                        activeTrackColor: AdminColors.success,
+                        onChanged: (val) => setState(() => _isSupportActive = val),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // حقول الواتساب والاتصال الهاتفي
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // رقم وتساب
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.chat_rounded, size: 16, color: Color(0xFF25D366)),
+                              const SizedBox(width: 6),
+                              Text('رقم واتساب الدعم الفني الرسمي *:', style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          TextField(
+                            controller: _supportWhatsAppCtrl,
+                            keyboardType: TextInputType.phone,
+                            style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold),
+                            decoration: InputDecoration(
+                              hintText: 'مثال: 01012345678 أو +201012345678',
+                              prefixIcon: const Icon(Icons.phone_iphone_rounded, size: 18),
+                              filled: true,
+                              fillColor: Colors.white,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+
+                    // رقم الاتصال المباشر
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.phone_in_talk_rounded, size: 16, color: AdminColors.primaryDark),
+                              const SizedBox(width: 6),
+                              Text('رقم الاتصال الصوتي / الخط الساخن *:', style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          TextField(
+                            controller: _supportPhoneCtrl,
+                            keyboardType: TextInputType.phone,
+                            style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold),
+                            decoration: InputDecoration(
+                              hintText: 'مثال: 01012345678 أو 16xxx',
+                              prefixIcon: const Icon(Icons.call_rounded, size: 18),
+                              filled: true,
+                              fillColor: Colors.white,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+
+                // حقل البريد الإلكتروني ومواعيد العمل
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // البريد الإلكتروني
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.email_rounded, size: 16, color: Color(0xFFEA4335)),
+                              const SizedBox(width: 6),
+                              Text('البريد الإلكتروني الرسمي للدعم *:', style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          TextField(
+                            controller: _supportEmailCtrl,
+                            keyboardType: TextInputType.emailAddress,
+                            style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold),
+                            decoration: InputDecoration(
+                              hintText: 'مثال: support@shefaa.com',
+                              prefixIcon: const Icon(Icons.alternate_email_rounded, size: 18),
+                              filled: true,
+                              fillColor: Colors.white,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+
+                    // مواعيد العمل والملاحظة
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.access_time_filled_rounded, size: 16, color: Colors.orange),
+                              const SizedBox(width: 6),
+                              Text('رسالة مواعيد العمل والتواجد:', style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          TextField(
+                            controller: _supportWorkingHoursCtrl,
+                            style: GoogleFonts.cairo(fontSize: 12.5),
+                            decoration: InputDecoration(
+                              hintText: 'مثال: فريق الدعم متاح يومياً لمساعدتكم 24/7',
+                              prefixIcon: const Icon(Icons.info_outline_rounded, size: 18),
+                              filled: true,
+                              fillColor: Colors.white,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+
+                // رسالة الواتساب الافتتاحية
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.message_rounded, size: 16, color: Color(0xFF25D366)),
+                        const SizedBox(width: 6),
+                        Text('نص الرسالة التلقائية للواتساب (تظهر عند فتح الشات):', style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    TextField(
+                      controller: _supportWhatsAppMsgCtrl,
+                      style: GoogleFonts.cairo(fontSize: 12.5),
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        hintText: 'مثال: مرحباً، أود الاستفسار والتواصل بخصوص منصة شفاء 💚',
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       ),
                     ),
                   ],
