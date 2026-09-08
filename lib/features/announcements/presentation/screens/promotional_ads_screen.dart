@@ -91,7 +91,7 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
           .from('promotional_ads')
           .select('''
             id, ad_type, doctor_id, pharmacy_id, title, subtitle, description,
-            image_url, target_governorates, action_url, badge_text, priority,
+            image_url, background_image_url, target_governorates, action_url, badge_text, priority,
             views_count, clicks_count, starts_at, expires_at, is_active, created_at,
             doctors(id, specialty, rating_avg, profiles(full_name, avatar_url, phone)),
             pharmacies(id, name, governorate, rating_avg, profiles(avatar_url, phone))
@@ -158,7 +158,7 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
     }
   }
 
-  Future<void> _deleteAdPermanently(String id, String title, String imageUrl) async {
+  Future<void> _deleteAdPermanently(String id, String title, String imageUrl, [String? bgImageUrl]) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -171,7 +171,7 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
           ],
         ),
         content: Text(
-          'هل أنت متأكد من حذف إعلان "$title" نهائياً؟ سيتم حذفه من قاعدة البيانات وحذف صورته من السيرفر والاستورج فوراً.',
+          'هل أنت متأكد من حذف إعلان "$title" نهائياً؟ سيتم حذفه من قاعدة البيانات وحذف صوره من السيرفر والاستورج فوراً.',
           style: GoogleFonts.cairo(fontSize: 13, height: 1.4),
         ),
         actions: [
@@ -191,12 +191,22 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
     if (confirm != true) return;
 
     try {
-      // 1. حذف الصورة من الاستورج إن كانت مخزنة في promotional_ads bucket
+      // 1. حذف الصورة الرئيسية من الاستورج إن كانت مخزنة في promotional_ads bucket
       if (imageUrl.contains('/promotional_ads/')) {
         try {
           final fileName = imageUrl.split('/promotional_ads/').last.split('?').first;
           if (fileName.isNotEmpty) {
             await _client.storage.from('promotional_ads').remove([fileName]);
+          }
+        } catch (_) {}
+      }
+
+      // 1.1 حذف صورة الخلفية إن وجدت وكانت مخزنة في الاستورج
+      if (bgImageUrl != null && bgImageUrl.contains('/promotional_ads/')) {
+        try {
+          final bgFileName = bgImageUrl.split('/promotional_ads/').last.split('?').first;
+          if (bgFileName.isNotEmpty) {
+            await _client.storage.from('promotional_ads').remove([bgFileName]);
           }
         } catch (_) {}
       }
@@ -533,6 +543,7 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
     final priority = ad['priority'] as int? ?? 0;
     final expiresAtStr = ad['expires_at'] as String?;
     final imageUrl = ad['image_url'] as String? ?? '';
+    final bgImageUrl = (ad['background_image_url'] as String? ?? '').trim();
 
     DateTime? expiresAt;
     if (expiresAtStr != null) {
@@ -668,6 +679,14 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                           child: Text('أولوية: $priority', style: GoogleFonts.cairo(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blue.shade700)),
                         ),
                       ],
+                      if (bgImageUrl.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(color: Colors.purple.shade50, borderRadius: BorderRadius.circular(6)),
+                          child: Text('خلفية مخصصة 🎨', style: GoogleFonts.cairo(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.purple.shade700)),
+                        ),
+                      ],
                       const Spacer(),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -764,7 +783,7 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                 IconButton(
                   tooltip: 'حذف الإعلان وصورته نهائياً',
                   icon: const Icon(Icons.delete_forever_rounded, color: AdminColors.emergency, size: 22),
-                  onPressed: () => _deleteAdPermanently(id, title, imageUrl),
+                  onPressed: () => _deleteAdPermanently(id, title, imageUrl, bgImageUrl),
                 ),
               ],
             ),
@@ -1113,6 +1132,8 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
 
     Uint8List? pickedImageBytes;
     String? pickedImageName;
+    Uint8List? pickedBgImageBytes;
+    String? pickedBgImageName;
     bool isUploadingImage = false;
 
     final titleCtrl = TextEditingController();
@@ -1199,6 +1220,8 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                                 badgeCtrl.text = 'طبيب مميز ⭐';
                                 pickedImageBytes = null;
                                 pickedImageName = null;
+                                pickedBgImageBytes = null;
+                                pickedBgImageName = null;
                               });
                             },
                           ),
@@ -1216,6 +1239,8 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                                 badgeCtrl.text = 'خصم حصري 🔥';
                                 pickedImageBytes = null;
                                 pickedImageName = null;
+                                pickedBgImageBytes = null;
+                                pickedBgImageName = null;
                               });
                             },
                           ),
@@ -1507,10 +1532,10 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                       const SizedBox(height: 18),
                     ],
 
-                    // 2. رفع صورة البنر الإعلاني من الجهاز (حصرياً للإعلان العام / الخارجي فقط)
+                    // 2. رفع صور الإعلان (حصرياً للإعلان العام / الخارجي فقط)
                     if (adType == 'GENERAL') ...[
                       Text(
-                        '2. رفع صورة البنر الإعلاني من جهازك 🖼️ (إجباري للإعلان العام):',
+                        '2.1 رفع صورة البنر أو الشعار الإعلاني 🖼️ (إجباري للإعلان العام):',
                         style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.purple.shade800),
                       ),
                       const SizedBox(height: 6),
@@ -1528,7 +1553,7 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                                 borderRadius: BorderRadius.circular(12),
                                 child: Image.memory(
                                   pickedImageBytes!,
-                                  height: 160,
+                                  height: 150,
                                   width: double.infinity,
                                   fit: BoxFit.cover,
                                 ),
@@ -1542,7 +1567,7 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                                       const Icon(Icons.check_circle_rounded, color: AdminColors.success, size: 18),
                                       const SizedBox(width: 6),
                                       Text(
-                                        'تم اختيار: ${pickedImageName ?? "صورة البنر"} (${(pickedImageBytes!.lengthInBytes / 1024).toStringAsFixed(1)} KB)',
+                                        'تم اختيار البنر: ${pickedImageName ?? "صورة البنر"} (${(pickedImageBytes!.lengthInBytes / 1024).toStringAsFixed(1)} KB)',
                                         style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: AdminColors.textPrimary),
                                       ),
                                     ],
@@ -1576,7 +1601,7 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                                 borderRadius: BorderRadius.circular(12),
                                 child: Container(
                                   width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(vertical: 24),
+                                  padding: const EdgeInsets.symmetric(vertical: 22),
                                   decoration: BoxDecoration(
                                     color: Colors.white,
                                     borderRadius: BorderRadius.circular(12),
@@ -1587,12 +1612,107 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                                       Container(
                                         padding: const EdgeInsets.all(12),
                                         decoration: BoxDecoration(color: Colors.purple.shade100, shape: BoxShape.circle),
-                                        child: Icon(Icons.cloud_upload_rounded, color: Colors.purple.shade700, size: 32),
+                                        child: Icon(Icons.cloud_upload_rounded, color: Colors.purple.shade700, size: 30),
                                       ),
                                       const SizedBox(height: 10),
                                       Text('انقر هنا لاختيار ورفع صورة البنر الإعلاني من جهازك 🖼️', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.purple.shade900)),
                                       const SizedBox(height: 4),
-                                      Text('يدعم صيغ JPG, PNG, WebP (سيتم حفظها في الاستورج ومسحها تلقائياً عند انتهاء الإعلان)', style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textMuted)),
+                                      Text('يدعم صيغ JPG, PNG, WebP (تظهر داخل الكارد وفي تفاصيل الإعلان)', style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textMuted)),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // 2.2 رفع صورة خلفية الكارد
+                      Text(
+                        '2.2 رفع صورة خلفية الكارد 🎨 (اختياري - لتظهر كخلفية بدلاً من اللون السادة لدى المريض):',
+                        style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.purple.shade800),
+                      ),
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.purple.shade50.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.purple.shade200, width: 1.2),
+                        ),
+                        child: Column(
+                          children: [
+                            if (pickedBgImageBytes != null) ...[
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.memory(
+                                  pickedBgImageBytes!,
+                                  height: 130,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.check_circle_rounded, color: AdminColors.success, size: 18),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'تم اختيار الخلفية: ${pickedBgImageName ?? "صورة الخلفية"} (${(pickedBgImageBytes!.lengthInBytes / 1024).toStringAsFixed(1)} KB)',
+                                        style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: AdminColors.textPrimary),
+                                      ),
+                                    ],
+                                  ),
+                                  TextButton.icon(
+                                    style: TextButton.styleFrom(foregroundColor: AdminColors.emergency),
+                                    icon: const Icon(Icons.delete_outline_rounded, size: 16),
+                                    label: Text('حذف واستبدال', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 11.5)),
+                                    onPressed: () {
+                                      setDialogState(() {
+                                        pickedBgImageBytes = null;
+                                        pickedBgImageName = null;
+                                      });
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ] else ...[
+                              InkWell(
+                                onTap: () async {
+                                  final picker = ImagePicker();
+                                  final XFile? file = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+                                  if (file != null) {
+                                    final bytes = await file.readAsBytes();
+                                    setDialogState(() {
+                                      pickedBgImageBytes = bytes;
+                                      pickedBgImageName = file.name;
+                                    });
+                                  }
+                                },
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(vertical: 20),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: Colors.purple.shade300, style: BorderStyle.solid),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(color: Colors.purple.shade100, shape: BoxShape.circle),
+                                        child: Icon(Icons.wallpaper_rounded, color: Colors.purple.shade700, size: 28),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text('انقر هنا لاختيار صورة خلفية الكارد (اختياري) 🎨', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 12.5, color: Colors.purple.shade900)),
+                                      const SizedBox(height: 3),
+                                      Text('ستظهر في خلفية الكارد لدى المريض بدلاً من الخلفية السادة (JPG, PNG, WebP)', style: GoogleFonts.cairo(fontSize: 11, color: AdminColors.textMuted)),
                                     ],
                                   ),
                                 ),
@@ -1737,9 +1857,11 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                     if (adType == 'GENERAL') ...[
                       const SizedBox(height: 10),
                       _buildDialogTextField(
-                        label: 'الوصف التفصيلي للعرض (يظهر عند ضغط المريض على الإعلان)',
-                        hint: 'اكتب تفاصيل العرض الكاملة، الشروط، وأرقام التواصل...',
+                        label: 'الوصف التفصيلي والشامل للإعلان (يظهر بالكامل عند نقر المريض على الكارد) 📝',
+                        hint: 'اكتب كل ما تريده: تفاصيل العرض، الشروط، الخدمات، أرقام الهواتف أو الواتساب، ومواعيد العمل...',
                         controller: descCtrl,
+                        maxLines: 5,
+                        minLines: 3,
                       ),
                     ],
                     const SizedBox(height: 18),
@@ -1898,6 +2020,22 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                             finalImageUrl = _client.storage.from('promotional_ads').getPublicUrl(fileName);
                           }
 
+                          String finalBgImageUrl = '';
+                          if (adType == 'GENERAL' && pickedBgImageBytes != null) {
+                            // رفع صورة خلفية الكارد إلى Supabase Storage في bucket 'promotional_ads'
+                            final extBg = pickedBgImageName?.split('.').last.toLowerCase() ?? 'jpg';
+                            final cleanExtBg = (extBg == 'png' || extBg == 'webp') ? extBg : 'jpg';
+                            final fileNameBg = 'promo_bg_${DateTime.now().millisecondsSinceEpoch}_${(1000 + (DateTime.now().microsecond % 9000))}.$cleanExtBg';
+
+                            await _client.storage.from('promotional_ads').uploadBinary(
+                              fileNameBg,
+                              pickedBgImageBytes!,
+                              fileOptions: FileOptions(contentType: 'image/$cleanExtBg', upsert: true),
+                            );
+
+                            finalBgImageUrl = _client.storage.from('promotional_ads').getPublicUrl(fileNameBg);
+                          }
+
                           final payload = {
                             'ad_type': adType,
                             'doctor_id': adType == 'DOCTOR' ? selectedDoctor!['id'] : null,
@@ -1906,6 +2044,7 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                             'subtitle': subtitleCtrl.text.trim(),
                             'description': descCtrl.text.trim(),
                             'image_url': finalImageUrl,
+                            'background_image_url': finalBgImageUrl,
                             'target_governorates': selectedGovernorates.toList(),
                             'action_url': actionUrlCtrl.text.trim(),
                             'badge_text': badgeCtrl.text.trim().isEmpty ? 'مميز ⭐' : badgeCtrl.text.trim(),
@@ -1926,6 +2065,7 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                               'doctor_id': selectedDoctor?['id'],
                               'pharmacy_id': selectedPharmacy?['id'],
                               'image_url': finalImageUrl,
+                              'background_image_url': finalBgImageUrl,
                               'governorates': selectedGovernorates.toList(),
                               'expires_at': selectedExpiry.toIso8601String(),
                             },
@@ -2002,6 +2142,8 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
     required String hint,
     required TextEditingController controller,
     TextInputType? keyboardType,
+    int? maxLines = 1,
+    int? minLines,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2011,6 +2153,8 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
         TextField(
           controller: controller,
           keyboardType: keyboardType,
+          maxLines: maxLines,
+          minLines: minLines,
           style: GoogleFonts.cairo(fontSize: 12.5),
           decoration: InputDecoration(
             hintText: hint,
