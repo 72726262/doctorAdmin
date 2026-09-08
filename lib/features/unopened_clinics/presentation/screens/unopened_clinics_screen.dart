@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:doctor_admin/core/app_colors.dart';
@@ -223,40 +224,46 @@ class _UnopenedClinicsScreenState extends State<UnopenedClinicsScreen> {
               ),
               child: Column(
                 children: [
-                  Row(
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    runSpacing: 12,
+                    spacing: 12,
                     children: [
-                      // أزرار الفلترة السريعة للتاريخ
-                      _buildDateChip('اليوم', isToday, () => _setDate(today)),
-                      const SizedBox(width: 8),
-                      _buildDateChip('أمس', isYesterday, () => _setDate(today.subtract(const Duration(days: 1)))),
-                      const SizedBox(width: 8),
-                      _buildDateChip('أول أمس', isDayBefore, () => _setDate(today.subtract(const Duration(days: 2)))),
-                      const SizedBox(width: 8),
-                      ActionChip(
-                        avatar: const Icon(Icons.calendar_month_rounded, size: 16, color: AdminColors.primaryDark),
-                        label: Text(
-                          !isToday && !isYesterday && !isDayBefore
-                              ? 'تاريخ: ${_formatDateForApi(_selectedDate)}'
-                              : 'تاريخ مخصص 📅',
-                          style: GoogleFonts.cairo(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: !isToday && !isYesterday && !isDayBefore ? AdminColors.primaryDark : AdminColors.textPrimary,
+                      // أزرار الفلترة السريعة للتاريخ بمساحات رحبة وواضحة تماماً
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _buildDateTab(
+                            label: 'اليوم',
+                            isSelected: isToday,
+                            onTap: () => _setDate(today),
                           ),
-                        ),
-                        backgroundColor: !isToday && !isYesterday && !isDayBefore
-                            ? AdminColors.accentMintLight
-                            : const Color(0xFFF1F5F9),
-                        side: BorderSide(
-                          color: !isToday && !isYesterday && !isDayBefore ? AdminColors.primaryDark : Colors.transparent,
-                        ),
-                        onPressed: () => _selectCustomDate(context),
+                          _buildDateTab(
+                            label: 'أمس',
+                            isSelected: isYesterday,
+                            onTap: () => _setDate(today.subtract(const Duration(days: 1))),
+                          ),
+                          _buildDateTab(
+                            label: 'أول أمس',
+                            isSelected: isDayBefore,
+                            onTap: () => _setDate(today.subtract(const Duration(days: 2))),
+                          ),
+                          _buildDateTab(
+                            label: !isToday && !isYesterday && !isDayBefore
+                                ? 'تاريخ: ${_formatDateForApi(_selectedDate)}'
+                                : 'تاريخ مخصص 📅',
+                            isSelected: !isToday && !isYesterday && !isDayBefore,
+                            icon: Icons.calendar_month_rounded,
+                            onTap: () => _selectCustomDate(context),
+                          ),
+                        ],
                       ),
-                      const Spacer(),
 
                       // فلتر المحافظة
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
                         decoration: BoxDecoration(
                           color: const Color(0xFFF8FAFC),
                           borderRadius: BorderRadius.circular(10),
@@ -265,8 +272,11 @@ class _UnopenedClinicsScreenState extends State<UnopenedClinicsScreen> {
                         child: DropdownButtonHideUnderline(
                           child: DropdownButton<String>(
                             value: _selectedGovernorate,
-                            icon: const Icon(Icons.location_on_outlined, size: 16, color: AdminColors.primaryDark),
-                            style: GoogleFonts.cairo(fontSize: 12, color: AdminColors.textPrimary, fontWeight: FontWeight.bold),
+                            icon: const Padding(
+                              padding: EdgeInsetsDirectional.only(start: 6),
+                              child: Icon(Icons.location_on_outlined, size: 18, color: AdminColors.primaryDark),
+                            ),
+                            style: GoogleFonts.cairo(fontSize: 12.5, color: AdminColors.textPrimary, fontWeight: FontWeight.bold),
                             items: _governorates.map((gov) {
                               return DropdownMenuItem(value: gov, child: Text(gov));
                             }).toList(),
@@ -412,15 +422,61 @@ class _UnopenedClinicsScreenState extends State<UnopenedClinicsScreen> {
     );
   }
 
-  Widget _buildDateChip(String label, bool isSelected, VoidCallback onTap) {
-    return ChoiceChip(
-      label: Text(label, style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold)),
-      selected: isSelected,
-      onSelected: (_) => onTap(),
-      selectedColor: AdminColors.primaryDark,
-      labelStyle: TextStyle(color: isSelected ? Colors.white : AdminColors.textPrimary),
-      backgroundColor: const Color(0xFFF1F5F9),
-      side: BorderSide(color: isSelected ? AdminColors.primaryDark : Colors.transparent),
+  Widget _buildDateTab({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+    IconData? icon,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected ? AdminColors.primaryDark : const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? AdminColors.primaryDark : const Color(0xFFE2E8F0),
+              width: 1.2,
+            ),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: AdminColors.primaryDark.withValues(alpha: 0.25),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    )
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(
+                  icon,
+                  size: 16,
+                  color: isSelected ? Colors.white : AdminColors.primaryDark,
+                ),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                label,
+                style: GoogleFonts.cairo(
+                  fontSize: 13,
+                  fontWeight: isSelected ? FontWeight.w900 : FontWeight.w700,
+                  color: isSelected ? Colors.white : AdminColors.textPrimary,
+                  height: 1.2,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -572,6 +628,65 @@ class _UnopenedClinicsScreenState extends State<UnopenedClinicsScreen> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
+                    if (phone.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF0FDF4),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFFBBF7D0)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.phone_android_rounded, size: 15, color: Color(0xFF15803D)),
+                              const SizedBox(width: 6),
+                              SelectableText(
+                                phone,
+                                style: GoogleFonts.cairo(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w900,
+                                  color: const Color(0xFF14532D),
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              InkWell(
+                                onTap: () {
+                                  Clipboard.setData(ClipboardData(text: phone));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Row(
+                                        children: [
+                                          const Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
+                                          const SizedBox(width: 8),
+                                          Text('تم نسخ رقم الهاتف: $phone', style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+                                        ],
+                                      ),
+                                      duration: const Duration(seconds: 2),
+                                      backgroundColor: AdminColors.primaryDark,
+                                    ),
+                                  );
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.all(3),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(5),
+                                    border: Border.all(color: const Color(0xFF86EFAC)),
+                                  ),
+                                  child: const Tooltip(
+                                    message: 'نسخ رقم الهاتف',
+                                    child: Icon(Icons.copy_rounded, size: 12, color: Color(0xFF15803D)),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -648,69 +763,98 @@ class _UnopenedClinicsScreenState extends State<UnopenedClinicsScreen> {
           const SizedBox(height: 14),
 
           // أزرار العمليات المباشرة للإدارة
-          Row(
+          // أزرار العمليات المباشرة للإدارة (متجاوبة تماماً مع الشاشات والتابلت)
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 10,
             children: [
-              // زر إرسال إنذار رسمي
-              ElevatedButton.icon(
-                onPressed: () => _showSendWarningModal(context, clinic),
-                icon: const Icon(Icons.send_rounded, size: 16),
-                label: Text(
-                  hasWarningForDate ? 'إرسال إنذار إضافي / تصعيد ⚠️' : 'إرسال إنذار رسمي للطبيب ⚠️',
-                  style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: hasWarningForDate ? Colors.amber.shade800 : Colors.red.shade700,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  elevation: 0,
-                ),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  // زر إرسال إنذار رسمي
+                  ElevatedButton.icon(
+                    onPressed: () => _showSendWarningModal(context, clinic),
+                    icon: const Icon(Icons.send_rounded, size: 16),
+                    label: Text(
+                      hasWarningForDate ? 'إرسال إنذار إضافي / تصعيد ⚠️' : 'إرسال إنذار رسمي للطبيب ⚠️',
+                      style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: hasWarningForDate ? Colors.amber.shade800 : Colors.red.shade700,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      elevation: 0,
+                    ),
+                  ),
+
+                  // زر استعراض المرضى والتذاكر المهدرة
+                  OutlinedButton.icon(
+                    onPressed: () => _showWastedTicketsModal(context, branchId, docName),
+                    icon: const Icon(Icons.people_alt_outlined, size: 16, color: AdminColors.primaryDark),
+                    label: Text('كشف المرضى المتضررين ($wastedCount) 📋', style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: AdminColors.primaryDark)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AdminColors.primaryDark),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+
+                  // زر سجل الإنذارات السابقة
+                  OutlinedButton.icon(
+                    onPressed: () => _showWarningsHistoryModal(context, doctorId, docName),
+                    icon: const Icon(Icons.history_edu_rounded, size: 16, color: AdminColors.textSecondary),
+                    label: Text('سجل الإنذارات ($pastWarningsCount) 📜', style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: AdminColors.textSecondary)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AdminColors.cardBorder),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
 
-              // زر استعراض المرضى والتذاكر المهدرة
-              OutlinedButton.icon(
-                onPressed: () => _showWastedTicketsModal(context, branchId, docName),
-                icon: const Icon(Icons.people_alt_outlined, size: 16, color: AdminColors.primaryDark),
-                label: Text('كشف المرضى المتضررين ($wastedCount) 📋', style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: AdminColors.primaryDark)),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: AdminColors.primaryDark),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-              const SizedBox(width: 8),
+              // أزرار التواصل المباشر مع ظهور الرقم كاملاً للمشرف (للاتصال من التابلت أو الموبايل)
+              if (phone.isNotEmpty)
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    // زر واتساب الطبيب
+                    OutlinedButton.icon(
+                      onPressed: () => _launchWhatsApp(phone, docName, wastedCount),
+                      icon: const Icon(Icons.chat_bubble_outline_rounded, size: 16, color: Color(0xFF15803D)),
+                      label: Text('واتساب', style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF15803D))),
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: const Color(0xFFDCFCE7),
+                        side: const BorderSide(color: Color(0xFF86EFAC)),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
 
-              // زر سجل الإنذارات السابقة
-              OutlinedButton.icon(
-                onPressed: () => _showWarningsHistoryModal(context, doctorId, docName),
-                icon: const Icon(Icons.history_edu_rounded, size: 16, color: AdminColors.textSecondary),
-                label: Text('سجل الإنذارات ($pastWarningsCount) 📜', style: GoogleFonts.cairo(fontSize: 11.5, fontWeight: FontWeight.bold, color: AdminColors.textSecondary)),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: AdminColors.cardBorder),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    // زر اتصال مباشر يظهر رقم الهاتف بوضوح شديد
+                    ElevatedButton.icon(
+                      onPressed: () => _launchPhone(phone),
+                      icon: const Icon(Icons.phone_in_talk_rounded, size: 16, color: Colors.white),
+                      label: Text(
+                        'اتصال: $phone',
+                        style: GoogleFonts.cairo(fontSize: 12.5, fontWeight: FontWeight.w900, color: Colors.white),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AdminColors.primaryDark,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        elevation: 0,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-
-              const Spacer(),
-
-              // أزرار التواصل المباشر (واتساب + هاتف)
-              if (phone.isNotEmpty) ...[
-                IconButton.filledTonal(
-                  onPressed: () => _launchWhatsApp(phone, docName, wastedCount),
-                  icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18, color: Color(0xFF15803D)),
-                  tooltip: 'مراسلة واتساب فورية',
-                  style: IconButton.styleFrom(backgroundColor: const Color(0xFFDCFCE7)),
-                ),
-                const SizedBox(width: 6),
-                IconButton.filledTonal(
-                  onPressed: () => _launchPhone(phone),
-                  icon: const Icon(Icons.phone_in_talk_rounded, size: 18, color: AdminColors.primaryDark),
-                  tooltip: 'اتصال هاتفي مباشر',
-                  style: IconButton.styleFrom(backgroundColor: AdminColors.accentMintLight),
-                ),
-              ],
             ],
           ),
         ],
