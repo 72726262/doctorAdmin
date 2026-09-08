@@ -119,33 +119,23 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
 
       int pushDelivered = 0;
       try {
-        if (fcmTopic != null && fcmTopic.isNotEmpty) {
-          final pushRes = await _client.functions.invoke('push-dispatcher', body: {
-            'topic': fcmTopic,
-            'title': title,
-            'body': content,
-            'data': {
-              'announcement_id': announcementId,
-              'target_type': _targetRole,
-              'priority': _priority,
-            },
-            'channelId': 'shefaa_announcements_channel',
-          });
-          if (pushRes.status == 200) pushDelivered = 1;
-        } else if (tokens.isNotEmpty) {
-          final pushRes = await _client.functions.invoke('push-dispatcher', body: {
-            'tokens': tokens,
-            'title': title,
-            'body': content,
-            'data': {
-              'announcement_id': announcementId,
-              'target_type': _targetRole,
-              'priority': _priority,
-            },
-            'channelId': 'shefaa_announcements_channel',
-          });
+        final Map<String, dynamic> pushPayload = {
+          if (fcmTopic != null && fcmTopic.isNotEmpty) 'topic': fcmTopic,
+          if (tokens.isNotEmpty) 'tokens': tokens,
+          'title': title,
+          'body': content,
+          'data': {
+            'announcement_id': announcementId,
+            'target_type': _targetRole,
+            'priority': _priority,
+          },
+          'channelId': 'shefaa_announcements_channel',
+        };
+
+        if (pushPayload.containsKey('topic') || pushPayload.containsKey('tokens')) {
+          final pushRes = await _client.functions.invoke('push-dispatcher', body: pushPayload);
           final pushData = pushRes.data is Map ? pushRes.data : {};
-          pushDelivered = pushData['successCount'] ?? tokens.length;
+          pushDelivered = pushData['successCount'] ?? (fcmTopic != null ? 1 : tokens.length);
         }
       } catch (pushErr) {
         debugPrint('⚠️ Push Dispatcher Warning: $pushErr');
