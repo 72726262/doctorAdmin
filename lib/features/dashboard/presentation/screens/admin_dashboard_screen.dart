@@ -6,6 +6,7 @@ import 'package:doctor_admin/core/supabase_config.dart';
 import 'package:doctor_admin/core/widgets/admin_shimmer.dart';
 import 'package:doctor_admin/core/services/admin_realtime_manager.dart';
 import 'package:doctor_admin/features/queue_war_room/presentation/screens/queue_war_room_screen.dart';
+import 'package:doctor_admin/features/unopened_clinics/presentation/screens/unopened_clinics_screen.dart';
 import 'package:doctor_admin/features/doctors_governance/presentation/screens/doctors_governance_screen.dart';
 import 'package:doctor_admin/features/doctor_ratings/presentation/screens/doctor_ratings_screen.dart';
 import 'package:doctor_admin/features/pharmacies_governance/presentation/screens/pharmacies_governance_screen.dart';
@@ -40,6 +41,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   final List<String> _tabTitles = [
     'نظرة عامة ومؤشرات المنصة',
     'غرفة العمليات ورادار الطوابير اللحظي',
+    'رقابة العيادات المتخلفة والإنذارات ⚠️',
     'حوكمة وإدارة الأطباء والعيادات',
     'إدارة تقييمات الأطباء والأعلى تقييماً ⭐',
     'دليل وحوكمة التخصصات الطبية 🩺',
@@ -203,30 +205,31 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     children: [
                       _buildSidebarItem(0, 'نظرة عامة ومؤشرات المنصة', Icons.dashboard_rounded),
                       _buildSidebarItem(1, 'غرفة العمليات ورادار الطوابير 📡', Icons.radar_rounded),
-                      _buildSidebarItem(2, 'حوكمة الأطباء والعيادات', Icons.medical_services_rounded),
-                      _buildSidebarItem(3, 'إدارة تقييمات الأطباء والأعلى تقييماً ⭐', Icons.stars_rounded),
-                      _buildSidebarItem(4, 'دليل وحوكمة التخصصات الطبية 🩺', Icons.health_and_safety_rounded),
-                      _buildSidebarItem(5, 'رقابة الصيدليات وتداول الروشتات', Icons.local_pharmacy_rounded),
+                      _buildSidebarItem(2, 'رقابة العيادات المتخلفة والإنذارات ⚠️', Icons.report_problem_rounded, isUrgent: true),
+                      _buildSidebarItem(3, 'حوكمة الأطباء والعيادات', Icons.medical_services_rounded),
+                      _buildSidebarItem(4, 'إدارة تقييمات الأطباء والأعلى تقييماً ⭐', Icons.stars_rounded),
+                      _buildSidebarItem(5, 'دليل وحوكمة التخصصات الطبية 🩺', Icons.health_and_safety_rounded),
+                      _buildSidebarItem(6, 'رقابة الصيدليات وتداول الروشتات', Icons.local_pharmacy_rounded),
                       _buildSidebarItem(
-                        6,
+                        7,
                         'طلبات الاعتماد والانضمام',
                         Icons.verified_user_rounded,
                         badgeCount: pendingApprovalsCount > 0 ? pendingApprovalsCount : null,
                         isUrgent: pendingApprovalsCount > 0,
                       ),
                       _buildSidebarItem(
-                        7,
+                        8,
                         'إيصالات واشتراكات الأطباء',
                         Icons.receipt_long_rounded,
                         badgeCount: pendingSubsCount > 0 ? pendingSubsCount : null,
                         isUrgent: pendingSubsCount > 0,
                       ),
-                      _buildSidebarItem(8, 'إدارة الإعلانات والترويج 📢', Icons.campaign_rounded),
-                      _buildSidebarItem(9, 'الإذاعة والتنبيهات العامة', Icons.notifications_active_rounded),
-                      _buildSidebarItem(10, 'الأمان وسجل العمليات 🛡️', Icons.security_rounded),
-                      _buildSidebarItem(11, 'فريق المشرفين والمسؤولين 👥', Icons.admin_panel_settings_rounded),
-                      _buildSidebarItem(12, 'التحليلات الاستراتيجية BI', Icons.insights_rounded),
-                      _buildSidebarItem(13, 'طرق السداد وإعدادات النظام', Icons.settings_rounded),
+                      _buildSidebarItem(9, 'إدارة الإعلانات والترويج 📢', Icons.campaign_rounded),
+                      _buildSidebarItem(10, 'الإذاعة والتنبيهات العامة', Icons.notifications_active_rounded),
+                      _buildSidebarItem(11, 'الأمان وسجل العمليات 🛡️', Icons.security_rounded),
+                      _buildSidebarItem(12, 'فريق المشرفين والمسؤولين 👥', Icons.admin_panel_settings_rounded),
+                      _buildSidebarItem(13, 'التحليلات الاستراتيجية BI', Icons.insights_rounded),
+                      _buildSidebarItem(14, 'طرق السداد وإعدادات النظام', Icons.settings_rounded),
                     ],
                   ),
                 ),
@@ -343,6 +346,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     children: [
                       _buildOverviewTab(),
                       const QueueWarRoomScreen(),
+                      const UnopenedClinicsScreen(),
                       const DoctorsGovernanceScreen(),
                       const DoctorRatingsScreen(),
                       const SpecialtiesManagementScreen(),
