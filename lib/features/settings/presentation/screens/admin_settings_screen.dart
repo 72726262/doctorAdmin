@@ -135,15 +135,17 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   Future<void> _saveTicketPolicy() async {
     setState(() => _isSavingTicketPolicy = true);
     try {
-      await _client.from('system_ticket_policy_config').upsert({
-        'id': 'default_policy',
-        'max_active_tickets_per_doctor': _maxTicketsPerDoctor,
-        'max_active_tickets_global': _maxTicketsGlobal,
-        'min_minutes_between_same_day_tickets': int.tryParse(_conflictBufferCtrl.text.trim()) ?? 45,
-        'daily_cancellation_limit': int.tryParse(_dailyCancelLimitCtrl.text.trim()) ?? 3,
-        'is_conflict_check_enabled': _isConflictCheckEnabled,
-        'is_no_show_penalty_enabled': _isNoShowPenaltyEnabled,
-        'updated_at': DateTime.now().toIso8601String(),
+      await _client.rpc('upsert_system_config', params: {
+        'p_table_name': 'system_ticket_policy_config',
+        'p_data': {
+          'id': 'default_policy',
+          'max_active_tickets_per_doctor': _maxTicketsPerDoctor,
+          'max_active_tickets_global': _maxTicketsGlobal,
+          'min_minutes_between_same_day_tickets': int.tryParse(_conflictBufferCtrl.text.trim()) ?? 45,
+          'daily_cancellation_limit': int.tryParse(_dailyCancelLimitCtrl.text.trim()) ?? 3,
+          'is_conflict_check_enabled': _isConflictCheckEnabled,
+          'is_no_show_penalty_enabled': _isNoShowPenaltyEnabled,
+        }
       });
 
       AdminAuditService.log(
@@ -185,15 +187,17 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   Future<void> _saveSupportContacts() async {
     setState(() => _isSavingSupport = true);
     try {
-      await _client.from('system_support_contacts').upsert({
-        'id': 'default_support',
-        'whatsapp_phone': _supportWhatsAppCtrl.text.trim(),
-        'whatsapp_message': _supportWhatsAppMsgCtrl.text.trim(),
-        'phone_call': _supportPhoneCtrl.text.trim(),
-        'email': _supportEmailCtrl.text.trim(),
-        'working_hours_note': _supportWorkingHoursCtrl.text.trim(),
-        'is_active': _isSupportActive,
-        'updated_at': DateTime.now().toIso8601String(),
+      await _client.rpc('upsert_system_config', params: {
+        'p_table_name': 'system_support_contacts',
+        'p_data': {
+          'id': 'default_support',
+          'whatsapp_phone': _supportWhatsAppCtrl.text.trim(),
+          'whatsapp_message': _supportWhatsAppMsgCtrl.text.trim(),
+          'phone_call': _supportPhoneCtrl.text.trim(),
+          'email': _supportEmailCtrl.text.trim(),
+          'working_hours_note': _supportWorkingHoursCtrl.text.trim(),
+          'is_active': _isSupportActive,
+        }
       });
 
       AdminAuditService.log(
@@ -234,28 +238,32 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     setState(() => _isSavingPrices = true);
     try {
       // 1. تحديث أسعار باقة الأطباء
-      await _client.from('subscription_pricing_config').upsert({
-        'id': 'doctor_pricing',
-        'title': 'باقة اشتراك العيادات والأطباء 🩺',
-        'role': 'DOCTOR',
-        'monthly_price': double.tryParse(_doc1MonthCtrl.text.trim()) ?? 350.0,
-        'three_months_price': double.tryParse(_doc3MonthCtrl.text.trim()) ?? 950.0,
-        'six_months_price': double.tryParse(_doc6MonthCtrl.text.trim()) ?? 1800.0,
-        'twelve_months_price': double.tryParse(_doc12MonthCtrl.text.trim()) ?? 3200.0,
-        'extra_branch_monthly_price': double.tryParse(_docExtraBranchPriceCtrl.text.trim()) ?? 100.0,
-        'updated_at': DateTime.now().toIso8601String(),
+      await _client.rpc('upsert_system_config', params: {
+        'p_table_name': 'subscription_pricing_config',
+        'p_data': {
+          'id': 'doctor_pricing',
+          'title': 'باقة اشتراك العيادات والأطباء 🩺',
+          'role': 'DOCTOR',
+          'monthly_price': double.tryParse(_doc1MonthCtrl.text.trim()) ?? 350.0,
+          'three_months_price': double.tryParse(_doc3MonthCtrl.text.trim()) ?? 950.0,
+          'six_months_price': double.tryParse(_doc6MonthCtrl.text.trim()) ?? 1800.0,
+          'twelve_months_price': double.tryParse(_doc12MonthCtrl.text.trim()) ?? 3200.0,
+          'extra_branch_monthly_price': double.tryParse(_docExtraBranchPriceCtrl.text.trim()) ?? 100.0,
+        }
       });
 
       // 2. تحديث أسعار باقة الصيدليات
-      await _client.from('subscription_pricing_config').upsert({
-        'id': 'pharmacy_pricing',
-        'title': 'باقة اشتراك الصيدليات الشاملة 💊',
-        'role': 'PHARMACY',
-        'monthly_price': double.tryParse(_pharm1MonthCtrl.text.trim()) ?? 350.0,
-        'three_months_price': double.tryParse(_pharm3MonthCtrl.text.trim()) ?? 950.0,
-        'six_months_price': double.tryParse(_pharm6MonthCtrl.text.trim()) ?? 1800.0,
-        'twelve_months_price': double.tryParse(_pharm12MonthCtrl.text.trim()) ?? 3200.0,
-        'updated_at': DateTime.now().toIso8601String(),
+      await _client.rpc('upsert_system_config', params: {
+        'p_table_name': 'subscription_pricing_config',
+        'p_data': {
+          'id': 'pharmacy_pricing',
+          'title': 'باقة اشتراك الصيدليات الشاملة 💊',
+          'role': 'PHARMACY',
+          'monthly_price': double.tryParse(_pharm1MonthCtrl.text.trim()) ?? 350.0,
+          'three_months_price': double.tryParse(_pharm3MonthCtrl.text.trim()) ?? 950.0,
+          'six_months_price': double.tryParse(_pharm6MonthCtrl.text.trim()) ?? 1800.0,
+          'twelve_months_price': double.tryParse(_pharm12MonthCtrl.text.trim()) ?? 3200.0,
+        }
       });
 
       AdminAuditService.log(
@@ -298,7 +306,11 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     });
 
     try {
-      await _client.from('payment_methods').update({'is_active': nextStatus}).eq('id', id);
+      await _client.rpc('manage_payment_methods', params: {
+        'p_action': 'TOGGLE',
+        'p_id': id,
+        'p_data': {'is_active': nextStatus}
+      });
 
       AdminAuditService.log(
         actionType: nextStatus ? 'تفعيل وسيلة دفع' : 'إيقاف وسيلة دفع',
@@ -424,16 +436,25 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                 final messenger = ScaffoldMessenger.of(context);
                 Navigator.pop(ctx);
                 try {
-                  final res = await _client.from('payment_methods').insert({
-                    'name': name,
-                    'account_details': details,
-                    'instructions': instructions,
-                    'is_active': true,
-                  }).select().single();
-
-                  setState(() {
-                    _paymentMethods.add(Map<String, dynamic>.from(res));
+                  await _client.rpc('manage_payment_methods', params: {
+                    'p_action': 'INSERT',
+                    'p_id': '00000000-0000-0000-0000-000000000000', // unused for insert
+                    'p_data': {
+                      'name_ar': name,
+                      'name_en': name,
+                      'type': 'BANK_TRANSFER',
+                      'icon_url': '',
+                      'details': {
+                        'account_details': details,
+                        'instructions': instructions
+                      },
+                      'is_active': true,
+                      'display_order': 0
+                    }
                   });
+
+                  // Re-fetch will populate the new item since we don't have the generated ID here
+                  await _loadAllSettings(silent: true);
 
                   AdminAuditService.log(
                     actionType: 'إضافة وسيلة دفع جديدة',
@@ -561,11 +582,18 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
 
                       // 2. Persist to Supabase
                       try {
-                        await _client.from('payment_methods').update({
-                          'name': name,
-                          'account_details': details,
-                          'instructions': instructions,
-                        }).eq('id', id);
+                        await _client.rpc('manage_payment_methods', params: {
+                          'p_action': 'UPDATE',
+                          'p_id': id,
+                          'p_data': {
+                            'name_ar': name,
+                            'name_en': name,
+                            'details': {
+                              'account_details': details,
+                              'instructions': instructions
+                            }
+                          }
+                        });
 
                         AdminAuditService.log(
                           actionType: 'تعديل وسيلة دفع',
@@ -649,7 +677,10 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
               });
 
               try {
-                await _client.from('payment_methods').delete().eq('id', id);
+                await _client.rpc('manage_payment_methods', params: {
+                  'p_action': 'DELETE',
+                  'p_id': id,
+                });
 
                 AdminAuditService.log(
                   actionType: 'حذف وسيلة دفع نهائياً',

@@ -97,15 +97,11 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
 
   Future<void> _togglePharmacyStatus(String pharmacyId, bool currentStatus) async {
     try {
-      await _client.rpc('admin_toggle_entity_approval', params: {
-        'p_id': pharmacyId,
-        'p_is_approved': !currentStatus,
+      await _client.rpc('toggle_partner_status', params: {
+        'p_partner_id': pharmacyId,
+        'p_role': 'PHARMACY',
+        'p_new_status': !currentStatus,
       });
-
-      await _client.from('profiles').update({'is_approved': !currentStatus}).eq('id', pharmacyId);
-      await _client.from('pharmacies').update({
-        'subscription_status': !currentStatus ? 'ACTIVE' : 'SUSPENDED'
-      }).eq('id', pharmacyId);
 
       await _fetchPharmacies(silent: true);
 
@@ -249,33 +245,18 @@ class _PharmaciesGovernanceScreenState extends State<PharmaciesGovernanceScreen>
       }
       final newExpiry = exactExpiryDate ?? startDate.add(Duration(days: days));
 
-      final monthsCount = (days / 30).round() == 0 ? 1 : (days / 30).round();
+
       final adminNote = notes?.trim().isNotEmpty == true
           ? notes!.trim()
           : 'تمديد إداري استثنائي مباشر لصيدلية ($days يوم)';
 
-      await _client.from('subscription_requests').insert({
-        'user_id': pharmacyId,
-        'role': 'PHARMACY',
-        'plan_name': 'باقة الصيدليات الاحترافية',
-        'amount': 0,
-        'amount_paid': 0,
-        'months': monthsCount,
-        'payment_method': 'منحة / تمديد إداري 🛡️',
-        'status': 'APPROVED',
-        'start_date': startDate.toIso8601String(),
-        'end_date': newExpiry.toIso8601String(),
-        'reviewed_at': DateTime.now().toIso8601String(),
-        'notes': adminNote,
+      await _client.rpc('renew_partner_subscription', params: {
+        'p_partner_id': pharmacyId,
+        'p_role': 'PHARMACY',
+        'p_days': days,
+        'p_plan_name': 'باقة الصيدليات الاحترافية',
+        'p_amount': 0,
       });
-
-      await _client.from('pharmacies').update({
-        'subscription_status': 'ACTIVE',
-        'subscription_expires_at': newExpiry.toIso8601String(),
-        'grace_period_ends_at': newExpiry.add(const Duration(days: 3)).toIso8601String(),
-      }).eq('id', pharmacyId);
-
-      await _client.from('profiles').update({'is_approved': true}).eq('id', pharmacyId);
 
       AdminAuditService.log(
         actionType: 'تمديد اشتراك صيدلية',

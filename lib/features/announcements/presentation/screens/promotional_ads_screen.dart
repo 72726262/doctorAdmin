@@ -126,10 +126,11 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
 
   Future<void> _toggleAdStatus(String id, bool currentStatus, String title) async {
     try {
-      await _client.from('promotional_ads').update({
-        'is_active': !currentStatus,
-        'updated_at': DateTime.now().toIso8601String(),
-      }).eq('id', id);
+      await _client.rpc('manage_promotional_ads', params: {
+        'p_action': 'UPDATE',
+        'p_id': id,
+        'p_data': {'is_active': !currentStatus}
+      });
 
       AdminAuditService.log(
         actionType: currentStatus ? 'إيقاف إعلان ترويجي مؤقتاً' : 'تفعيل إعلان ترويجي',
@@ -212,7 +213,10 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
       }
 
       // 2. حذف السجل من قاعدة البيانات (يقوم التريجر بحذفها من storage.objects أيضاً)
-      await _client.from('promotional_ads').delete().eq('id', id);
+      await _client.rpc('manage_promotional_ads', params: {
+        'p_action': 'DELETE',
+        'p_id': id,
+      });
 
       AdminAuditService.log(
         actionType: 'حذف إعلان ترويجي وصورته من الاستورج نهائياً',
@@ -2054,7 +2058,11 @@ class _PromotionalAdsScreenState extends State<PromotionalAdsScreen> {
                             'created_at': DateTime.now().toUtc().toIso8601String(),
                           };
 
-                          await _client.from('promotional_ads').insert(payload);
+                          await _client.rpc('manage_promotional_ads', params: {
+                            'p_action': 'INSERT',
+                            'p_id': '00000000-0000-0000-0000-000000000000',
+                            'p_data': payload,
+                          });
 
                           AdminAuditService.log(
                             actionType: 'إطلاق إعلان ممول مع رفع صورة بالاستورج',

@@ -212,26 +212,13 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
     } catch (e) {
       debugPrint('Fallback manual update: $e');
       try {
-        final expiresAt = (exactExpiryDate ?? DateTime.now().add(Duration(days: days))).toIso8601String();
-        await _client.from('subscription_requests').update({
-          'status': 'APPROVED',
-          'reviewed_at': DateTime.now().toIso8601String(),
-          'start_date': DateTime.now().toIso8601String(),
-          'end_date': expiresAt,
-          'notes': adminNotes,
-        }).eq('id', reqId);
-
-        await _client.from('doctors').update({
-          'subscription_status': 'ACTIVE',
-          'subscription_expires_at': expiresAt,
-        }).eq('id', userId);
-
-        await _client.from('pharmacies').update({
-          'subscription_status': 'ACTIVE',
-          'subscription_expires_at': expiresAt,
-        }).eq('id', userId);
-
-        await _client.from('profiles').update({'is_approved': true}).eq('id', userId);
+        final req = previousList.firstWhere((r) => r['id'] == reqId, orElse: () => <String, dynamic>{});
+        await _client.rpc('approve_subscription_request', params: {
+          'p_request_id': reqId,
+          'p_partner_id': userId,
+          'p_role': req['role'] ?? 'DOCTOR',
+          'p_months': (days / 30).round() == 0 ? 1 : (days / 30).round(),
+        });
       } catch (err) {
         if (mounted) {
           setState(() => _requests = previousList);
@@ -905,11 +892,10 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
               setState(() => _requests.removeWhere((r) => r['id'] == reqId));
 
               try {
-                await _client.from('subscription_requests').update({
-                  'status': 'REJECTED',
-                  'rejection_reason': reason,
-                  'reviewed_at': DateTime.now().toIso8601String(),
-                }).eq('id', reqId);
+                await _client.rpc('reject_subscription_request', params: {
+                  'p_request_id': reqId,
+                  'p_reason': reason,
+                });
 
                 AdminAuditService.log(
                   actionType: 'رفض إيصال سداد اشتراك',

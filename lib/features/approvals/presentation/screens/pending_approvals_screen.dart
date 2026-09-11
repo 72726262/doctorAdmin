@@ -84,28 +84,19 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
 
   Future<void> _fetchStatusCounts() async {
     try {
-      final res = await _client.from('partner_verifications').select('status');
-      int pending = 0;
-      int approved = 0;
-      int rejected = 0;
-      for (final row in (res as List)) {
-        final st = (row['status'] as String? ?? '').toUpperCase();
-        if (st == 'PENDING') {
-          pending++;
-        } else if (st == 'APPROVED') {
-          approved++;
-        } else if (st == 'REJECTED') {
-          rejected++;
-        }
-      }
+      final res = await _client.rpc('get_verification_counts');
+      final data = res as Map<String, dynamic>? ?? {};
+      
       if (mounted) {
         setState(() {
-          _pendingCount = pending;
-          _approvedCount = approved;
-          _rejectedCount = rejected;
+          _pendingCount = data['pending'] ?? 0;
+          _approvedCount = data['approved'] ?? 0;
+          _rejectedCount = data['rejected'] ?? 0;
         });
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Error fetching counts: $e');
+    }
   }
 
   Future<void> _fetchVerifications({bool silent = false}) async {
@@ -600,46 +591,17 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
 
     // 2. مزامنة الباك إند وقاعدة البيانات بالكامل
     try {
-      // أ) تحديث جدول طلبات التوثيق
-      await _client.from('partner_verifications').update({
-        'status': 'APPROVED',
-        'reviewed_at': now.toIso8601String(),
-      }).eq('id', verificationId);
-
-      // ب) تحديث حالة الحساب العام
-      await _client.from('profiles').update({'is_approved': true}).eq('id', userId);
-
-      // ج) تحديث جدول الأطباء أو الصيدليات بفترة الاشتراك وسماح الحجز
-      final partnerData = {
-        'subscription_status': 'ACTIVE',
-        'subscription_expires_at': expiryDate.toIso8601String(),
-        'grace_period_ends_at': gracePeriodDate.toIso8601String(),
-      };
-
-      if (role == 'DOCTOR') {
-        await _client.from('doctors').update(partnerData).eq('id', userId);
-      } else if (role == 'PHARMACY') {
-        await _client.from('pharmacies').update(partnerData).eq('id', userId);
-      }
-
-      // د) قيد رسمي في جدول المعاملات التاريخية subscription_requests
-      final monthsCount = (days / 30).round() > 0 ? (days / 30).round() : 1;
       final defaultNote = 'باقة الانضمام والاعتماد الأولية المعتمدة من الإدارة ($days يوم)';
       final finalNote = adminNotes?.isNotEmpty == true ? adminNotes! : defaultNote;
 
-      await _client.from('subscription_requests').insert({
-        'user_id': userId,
-        'role': role.isNotEmpty ? role : 'DOCTOR',
-        'plan_name': 'باقة الانضمام والاعتماد الأولية ($days يوم)',
-        'amount': 0,
-        'amount_paid': 0,
-        'months': monthsCount,
-        'payment_method': 'باقة ترحيبية باعتماد الإدارة 🎁',
-        'status': 'APPROVED',
-        'start_date': now.toIso8601String(),
-        'end_date': expiryDate.toIso8601String(),
-        'reviewed_at': now.toIso8601String(),
-        'notes': finalNote,
+      await _client.rpc('approve_partner_securely', params: {
+        'p_verification_id': verificationId,
+        'p_user_id': userId,
+        'p_role': role,
+        'p_days': days,
+        'p_admin_notes': finalNote,
+        'p_specialty': item['specialty'] ?? '',
+        'p_governorate': item['governorate'] ?? '',
       });
 
       // هـ) تسجيل العملية في سجل الأمان والرقابة
@@ -749,13 +711,11 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
               );
 
               try {
-                await _client.from('partner_verifications').update({
-                  'status': 'REJECTED',
-                  'rejection_reason': reason,
-                  'reviewed_at': DateTime.now().toIso8601String(),
-                }).eq('id', verificationId);
-
-                await _client.from('profiles').update({'is_approved': false}).eq('id', userId);
+                await _client.rpc('reject_partner_securely', params: {
+                  'p_verification_id': verificationId,
+                  'p_user_id': userId,
+                  'p_reason': reason,
+                });
 
                 // تسجيل الرفض في سجل الرقابة
                 AdminAuditService.log(

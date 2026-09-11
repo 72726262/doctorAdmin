@@ -23,16 +23,15 @@ class AdminAuditService {
           user?.email ??
           'أدمن المنظومة الرئيسي';
 
-      await _client.from('admin_audit_logs').insert({
-        'admin_id': user?.id,
-        'admin_name': effectiveAdminName,
-        'action_type': actionType,
-        'target_type': targetType,
-        'target_id': targetId,
-        'target_name': targetName,
-        'details': details ?? {},
-        'status': status,
-        'ip_address': kIsWeb ? 'Web Console' : 'App Client',
+      await _client.rpc('insert_audit_log', params: {
+        'p_admin_id': user?.id ?? '00000000-0000-0000-0000-000000000000',
+        'p_admin_name': effectiveAdminName,
+        'p_action_type': actionType,
+        'p_target_type': targetType,
+        'p_target_id': targetId ?? '',
+        'p_target_name': targetName,
+        'p_status': status,
+        'p_details': details ?? {},
       });
     } catch (e) {
       debugPrint('⚠️ [Audit] Error logging admin action: $e');

@@ -53,15 +53,9 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
           isAuthorized = true;
         }
       } catch (e) {
-        // Fallback for Master Admin credentials
-        if (email.toLowerCase() == 'admin@shefaa.com' &&
-            (password == 'ShefaaAdmin2026!#' || password == 'admin123' || password == 'admin')) {
-          isAuthorized = true;
-        } else {
-          setState(() {
-            _errorMessage = 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
-          });
-        }
+        setState(() {
+          _errorMessage = 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
+        });
       }
 
       if (isAuthorized) {

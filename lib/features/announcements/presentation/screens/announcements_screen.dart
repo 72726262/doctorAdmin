@@ -196,10 +196,11 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
 
   Future<void> _toggleAnnouncementStatus(String id, bool currentStatus) async {
     try {
-      await _client
-          .from('system_announcements')
-          .update({'is_active': !currentStatus})
-          .eq('id', id);
+      await _client.rpc('manage_system_announcements', params: {
+        'p_action': 'UPDATE',
+        'p_id': id,
+        'p_data': {'is_active': !currentStatus}
+      });
 
       _fetchAnnouncements();
       if (mounted) {
@@ -252,7 +253,10 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
     if (confirm != true) return;
 
     try {
-      await _client.from('system_announcements').delete().eq('id', id);
+      await _client.rpc('manage_system_announcements', params: {
+        'p_action': 'DELETE',
+        'p_id': id,
+      });
       _fetchAnnouncements();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

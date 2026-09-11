@@ -159,52 +159,6 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
     }
   }
 
-  /// تبديل حالة فتح/إغلاق الطابور مع التدقيق الرقابي
-  Future<void> _toggleBranchQueue(String branchId, bool currentStatus, String branchName) async {
-    final nextStatus = !currentStatus;
-
-    // تحديث فوري لحظي في الواجهة (Optimistic UI)
-    setState(() {
-      final index = _liveBranches.indexWhere((b) => b['id'] == branchId);
-      if (index != -1) {
-        _liveBranches[index]['is_queue_active'] = nextStatus;
-      }
-    });
-
-    try {
-      await _client
-          .from('branches')
-          .update({'is_queue_active': nextStatus})
-          .eq('id', branchId);
-
-      // تسجيل العملية في سجل الرقابة
-      AdminAuditService.log(
-        actionType: nextStatus ? 'فتح طابور العيادة' : 'إيقاف طابور العيادة',
-        targetType: 'BRANCH_QUEUE',
-        targetId: branchId,
-        targetName: branchName,
-        details: {'is_queue_active': nextStatus},
-      );
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(nextStatus ? '🟢 تم فتح وتفعيل طابور العيادة' : '⏸️ تم إيقاف طابور العيادة مؤقتاً'),
-            backgroundColor: nextStatus ? AdminColors.success : AdminColors.warning,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      _fetchLiveQueues(silent: true);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('حدث خطأ: $e'), backgroundColor: AdminColors.emergency),
-        );
-      }
-    }
-  }
-
   /// إيقاف حجز اليوم لمنع التكدس والأزمات (Emergency Booking Stop)
   Future<void> _toggleBookingToday(String branchId, bool currentStopped, String branchName) async {
     final nextStopped = !currentStopped;
@@ -217,10 +171,11 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
     });
 
     try {
-      await _client
-          .from('branches')
-          .update({'is_booking_stopped_today': nextStopped})
-          .eq('id', branchId);
+      await _client.rpc('admin_toggle_branch_status', params: {
+        'p_branch_id': branchId,
+        'p_status_type': 'BOOKING_STOP',
+        'p_new_value': nextStopped,
+      });
 
       AdminAuditService.log(
         actionType: nextStopped ? 'تجميد الحجز اليومي لمنع التكدس' : 'إعادة فتح الحجز اليومي',
@@ -621,24 +576,6 @@ class _QueueWarRoomScreenState extends State<QueueWarRoomScreen> {
                                 ),
                                 const SizedBox(width: 8),
 
-                                // Action Switch
-                                Column(
-                                  children: [
-                                    Switch(
-                                      value: isActive,
-                                      activeTrackColor: AdminColors.success,
-                                      onChanged: (val) => _toggleBranchQueue(branch['id'], isActive, branch['branch_name']),
-                                    ),
-                                    Text(
-                                      isActive ? 'الطابور نشط' : 'الطابور معطل',
-                                      style: GoogleFonts.cairo(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                        color: isActive ? AdminColors.success : AdminColors.textSecondary,
-                                      ),
-                                    ),
-                                  ],
-                                ),
                               ],
                             ),
                           );
