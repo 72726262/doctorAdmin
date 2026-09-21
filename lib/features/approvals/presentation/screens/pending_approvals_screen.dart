@@ -128,7 +128,8 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
         reviewed_at,
         profiles (
           is_approved,
-          fcm_token
+          fcm_token,
+          phone_verified_at
         )
       ''');
 
@@ -1290,6 +1291,14 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
     final bio = item['bio'] as String? ?? '';
     final status = item['status'] as String? ?? 'PENDING';
     final rejectionReason = item['rejection_reason'] as String?;
+    final profilesRaw = item['profiles'];
+    Map<String, dynamic>? profileMap;
+    if (profilesRaw is Map) {
+      profileMap = Map<String, dynamic>.from(profilesRaw);
+    } else if (profilesRaw is List && profilesRaw.isNotEmpty && profilesRaw.first is Map) {
+      profileMap = Map<String, dynamic>.from(profilesRaw.first as Map);
+    }
+    final phoneVerified = profileMap?['phone_verified_at'] != null || item['phone_verified'] == true;
 
     // روابط الصور
     final frontUrl = item['id_front_url'] as String? ?? item['national_id_front_url'] as String? ?? '';
@@ -1383,6 +1392,21 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
                       const Icon(Icons.phone_iphone_rounded, size: 16, color: AdminColors.primaryDark),
                       const SizedBox(width: 6),
                       Text(phone, style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold, color: AdminColors.textPrimary)),
+                      const SizedBox(width: 8),
+                      Icon(
+                        phoneVerified ? Icons.verified_rounded : Icons.gpp_maybe_rounded,
+                        size: 16,
+                        color: phoneVerified ? AdminColors.success : AdminColors.emergency,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        phoneVerified ? 'مثبت OTP' : 'غير مثبت',
+                        style: GoogleFonts.cairo(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: phoneVerified ? AdminColors.success : AdminColors.emergency,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1484,7 +1508,19 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
                     ),
                     icon: const Icon(Icons.verified_user_rounded, size: 18),
                     label: Text('اعتماد وتحديد فترة الاشتراك 🚀', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13)),
-                    onPressed: () => _showApproveDurationDialog(item),
+                    onPressed: phoneVerified
+                        ? () => _showApproveDurationDialog(item)
+                        : () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'لا يمكن الاعتماد قبل إثبات الرقم بـ OTP',
+                                  style: GoogleFonts.cairo(),
+                                ),
+                                backgroundColor: AdminColors.emergency,
+                              ),
+                            );
+                          },
                   ),
                 ],
               ),

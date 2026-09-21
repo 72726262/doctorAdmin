@@ -97,6 +97,36 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
     }
   }
 
+  String _rewriteStorageHost(String url) {
+    const ipHost = 'http://178.105.236.62:8000';
+    if (url.startsWith(ipHost)) {
+      return url.replaceFirst(ipHost, AdminSupabaseConfig.supabaseUrl);
+    }
+    return url;
+  }
+
+  Future<String> _signReceiptUrl(String raw) async {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return '';
+    var filePath = trimmed;
+    if (trimmed.contains('/receipts/')) {
+      filePath = trimmed.split('/receipts/').last.split('?').first;
+    } else if (trimmed.startsWith('http') && trimmed.contains('token=')) {
+      return _rewriteStorageHost(trimmed);
+    } else if (!trimmed.startsWith('http')) {
+      filePath = trimmed.replaceFirst(RegExp(r'^receipts/'), '');
+    } else {
+      return _rewriteStorageHost(trimmed);
+    }
+    try {
+      return _rewriteStorageHost(
+        await _client.storage.from('receipts').createSignedUrl(filePath, 1800),
+      );
+    } catch (_) {
+      return _rewriteStorageHost(trimmed);
+    }
+  }
+
   Future<void> _toggleDoctorApproval(String doctorId, bool currentStatus) async {
     try {
       await _client.rpc('toggle_partner_status', params: {
@@ -1390,7 +1420,18 @@ class _DoctorsGovernanceScreenState extends State<DoctorsGovernanceScreen> {
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
                                               AppBar(title: Text('إيصال السداد', style: GoogleFonts.cairo(fontSize: 14, fontWeight: FontWeight.bold)), automaticallyImplyLeading: false, actions: [IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(c))]),
-                                              Image.network(receiptUrl, fit: BoxFit.contain, height: 500),
+                                              FutureBuilder<String>(
+                                                future: _signReceiptUrl(receiptUrl),
+                                                builder: (context, snap) {
+                                                  if (!snap.hasData || snap.data!.isEmpty) {
+                                                    return const Padding(
+                                                      padding: EdgeInsets.all(32),
+                                                      child: CircularProgressIndicator(),
+                                                    );
+                                                  }
+                                                  return Image.network(snap.data!, fit: BoxFit.contain, height: 500);
+                                                },
+                                              ),
                                             ],
                                           ),
                                         ),

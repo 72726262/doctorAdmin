@@ -922,6 +922,44 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
     );
   }
 
+  final Map<String, String> _receiptSignedCache = {};
+
+  String _rewriteStorageHost(String url) {
+    const ipHost = 'http://178.105.236.62:8000';
+    if (url.startsWith(ipHost)) {
+      return url.replaceFirst(ipHost, AdminSupabaseConfig.supabaseUrl);
+    }
+    return url;
+  }
+
+  Future<String> _signReceiptUrl(String raw) async {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return '';
+    final cached = _receiptSignedCache[trimmed];
+    if (cached != null) return cached;
+    var filePath = trimmed;
+    if (trimmed.contains('/receipts/')) {
+      filePath = trimmed.split('/receipts/').last.split('?').first;
+    } else if (trimmed.startsWith('http') && trimmed.contains('token=')) {
+      return _rewriteStorageHost(trimmed);
+    } else if (trimmed.startsWith('http') && trimmed.contains('/object/public/')) {
+      filePath = trimmed.split('/receipts/').length > 1
+          ? trimmed.split('/receipts/').last.split('?').first
+          : trimmed;
+    } else if (trimmed.startsWith('pharmacy_receipt_') || trimmed.startsWith('receipt_') || !trimmed.startsWith('http')) {
+      filePath = trimmed.replaceFirst(RegExp(r'^receipts/'), '');
+    }
+    try {
+      final signed = _rewriteStorageHost(
+        await _client.storage.from('receipts').createSignedUrl(filePath, 1800),
+      );
+      _receiptSignedCache[trimmed] = signed;
+      return signed;
+    } catch (_) {
+      return _rewriteStorageHost(trimmed);
+    }
+  }
+
   void _showReceiptInspectorModal(Map<String, dynamic> req) {
     final profile = req['profiles'] as Map<String, dynamic>? ?? {};
     final receiptUrl = req['receipt_image_url'] as String?;
@@ -951,10 +989,17 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
                 Text('المبلغ: $amount ج.م • المدة: $months شهر', style: GoogleFonts.cairo(fontSize: 12.5, color: AdminColors.textSecondary)),
                 const SizedBox(height: 16),
                 if (receiptUrl != null && receiptUrl.isNotEmpty)
-                  ClipRRect(
+                  FutureBuilder<String>(
+                    future: _signReceiptUrl(receiptUrl),
+                    builder: (context, snap) {
+                      final url = snap.data;
+                      if (url == null || url.isEmpty) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      return ClipRRect(
                     borderRadius: BorderRadius.circular(12),
                     child: Image.network(
-                      receiptUrl,
+                      url,
                       fit: BoxFit.contain,
                       errorBuilder: (ctx, err, stack) => Container(
                         padding: const EdgeInsets.all(40),
@@ -962,6 +1007,8 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
                         child: const Center(child: Text('تعذر تحميل الصورة')),
                       ),
                     ),
+                  );
+                    },
                   )
                 else
                   Container(
@@ -1529,12 +1576,21 @@ class _SubscriptionRequestsScreenState extends State<SubscriptionRequestsScreen>
                       if (receiptUrl != null && receiptUrl.isNotEmpty)
                         ClipRRect(
                           borderRadius: BorderRadius.circular(6),
-                          child: Image.network(
-                            receiptUrl,
-                            width: 28,
-                            height: 28,
-                            fit: BoxFit.cover,
-                            errorBuilder: (ctx, err, stack) => const Icon(Icons.receipt_rounded, size: 18, color: AdminColors.primaryDark),
+                          child: FutureBuilder<String>(
+                            future: _signReceiptUrl(receiptUrl),
+                            builder: (context, snap) {
+                              final url = snap.data;
+                              if (url == null || url.isEmpty) {
+                                return const Icon(Icons.receipt_rounded, size: 18, color: AdminColors.primaryDark);
+                              }
+                              return Image.network(
+                                url,
+                                width: 28,
+                                height: 28,
+                                fit: BoxFit.cover,
+                                errorBuilder: (ctx, err, stack) => const Icon(Icons.receipt_rounded, size: 18, color: AdminColors.primaryDark),
+                              );
+                            },
                           ),
                         )
                       else
