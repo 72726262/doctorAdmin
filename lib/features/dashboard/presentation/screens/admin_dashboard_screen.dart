@@ -10,6 +10,7 @@ import 'package:doctor_admin/features/unopened_clinics/presentation/screens/unop
 import 'package:doctor_admin/features/doctors_governance/presentation/screens/doctors_governance_screen.dart';
 import 'package:doctor_admin/features/doctor_ratings/presentation/screens/doctor_ratings_screen.dart';
 import 'package:doctor_admin/features/pharmacies_governance/presentation/screens/pharmacies_governance_screen.dart';
+import 'package:doctor_admin/features/labs_governance/presentation/screens/labs_governance_screen.dart';
 import 'package:doctor_admin/features/approvals/presentation/screens/pending_approvals_screen.dart';
 import 'package:doctor_admin/features/subscriptions/presentation/screens/subscription_requests_screen.dart';
 import 'package:doctor_admin/features/announcements/presentation/screens/announcements_screen.dart';
@@ -46,6 +47,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     'إدارة تقييمات الأطباء والأعلى تقييماً ⭐',
     'دليل وحوكمة التخصصات الطبية 🩺',
     'رقابة الصيدليات وتداول الروشتات',
+    'رقابة وحوكمة معامل التحاليل',
     'طلبات الاعتماد والانضمام الجديدة',
     'إيصالات واشتراكات الأطباء',
     'إدارة الإعلانات والبنرات الممولة 📢',
@@ -210,26 +212,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       _buildSidebarItem(4, 'إدارة تقييمات الأطباء والأعلى تقييماً ⭐', Icons.stars_rounded),
                       _buildSidebarItem(5, 'دليل وحوكمة التخصصات الطبية 🩺', Icons.health_and_safety_rounded),
                       _buildSidebarItem(6, 'رقابة الصيدليات وتداول الروشتات', Icons.local_pharmacy_rounded),
+                      _buildSidebarItem(7, 'رقابة وحوكمة معامل التحاليل', Icons.biotech_rounded),
                       _buildSidebarItem(
-                        7,
+                        8,
                         'طلبات الاعتماد والانضمام',
                         Icons.verified_user_rounded,
                         badgeCount: pendingApprovalsCount > 0 ? pendingApprovalsCount : null,
                         isUrgent: pendingApprovalsCount > 0,
                       ),
                       _buildSidebarItem(
-                        8,
+                        9,
                         'إيصالات واشتراكات الأطباء',
                         Icons.receipt_long_rounded,
                         badgeCount: pendingSubsCount > 0 ? pendingSubsCount : null,
                         isUrgent: pendingSubsCount > 0,
                       ),
-                      _buildSidebarItem(9, 'إدارة الإعلانات والترويج 📢', Icons.campaign_rounded),
-                      _buildSidebarItem(10, 'الإذاعة والتنبيهات العامة', Icons.notifications_active_rounded),
-                      _buildSidebarItem(11, 'الأمان وسجل العمليات 🛡️', Icons.security_rounded),
-                      _buildSidebarItem(12, 'فريق المشرفين والمسؤولين 👥', Icons.admin_panel_settings_rounded),
-                      _buildSidebarItem(13, 'التحليلات الاستراتيجية BI', Icons.insights_rounded),
-                      _buildSidebarItem(14, 'طرق السداد وإعدادات النظام', Icons.settings_rounded),
+                      _buildSidebarItem(10, 'إدارة الإعلانات والترويج 📢', Icons.campaign_rounded),
+                      _buildSidebarItem(11, 'الإذاعة والتنبيهات العامة', Icons.notifications_active_rounded),
+                      _buildSidebarItem(12, 'الأمان وسجل العمليات 🛡️', Icons.security_rounded),
+                      _buildSidebarItem(13, 'فريق المشرفين والمسؤولين 👥', Icons.admin_panel_settings_rounded),
+                      _buildSidebarItem(14, 'التحليلات الاستراتيجية BI', Icons.insights_rounded),
+                      _buildSidebarItem(15, 'طرق السداد وإعدادات النظام', Icons.settings_rounded),
                     ],
                   ),
                 ),
@@ -351,6 +354,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       const DoctorRatingsScreen(),
                       const SpecialtiesManagementScreen(),
                       const PharmaciesGovernanceScreen(),
+                      const LabsGovernanceScreen(),
                       const PendingApprovalsScreen(),
                       const SubscriptionRequestsScreen(),
                       const PromotionalAdsScreen(),
@@ -433,6 +437,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final totalPatients = stats['total_patients'] ?? 0;
     final totalDoctors = stats['total_doctors'] ?? 0;
     final totalPharmacies = stats['total_pharmacies'] ?? 0;
+    final totalLabs = stats['total_labs'] ?? 0;
     final totalTickets = stats['total_tickets'] ?? 0;
     final todayTickets = stats['today_tickets'] ?? 0;
     final activeQueues = stats['active_queues'] ?? 0;
@@ -539,7 +544,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       '$pendingApprovals طلب',
                       Icons.pending_actions_rounded,
                       pendingApprovals > 0 ? AdminColors.emergency : AdminColors.warning,
-                      subtitle: 'تراخيص أطباء وصيدليات جديدة',
+                      subtitle: 'تراخيص أطباء وصيدليات ومعامل جديدة',
                     ),
                   ),
                 ],
@@ -597,6 +602,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   SizedBox(
                     width: cardWidth,
                     child: _buildMetricCard(
+                      'معامل التحاليل المعتمدة',
+                      '$totalLabs',
+                      Icons.biotech_rounded,
+                      const Color(0xFF0F766E),
+                    ),
+                  ),
+                  SizedBox(
+                    width: cardWidth,
+                    child: _buildMetricCard(
                       'إجمالي الكشوفات المنفذة',
                       '$totalTickets',
                       Icons.confirmation_num_rounded,
@@ -635,7 +649,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   subtitle: 'اعتماد رخص مزاولة المهنة وكارنيهات النقابة الطبية',
                   icon: Icons.verified_user_rounded,
                   color: const Color(0xFF0F766E),
-                  onTap: () => setState(() => _selectedTabIndex = 6),
+                  onTap: () => setState(() => _selectedTabIndex = 8),
                 ),
               ),
               const SizedBox(width: 14),
@@ -645,7 +659,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   subtitle: 'تأكيد تحويلات فودافون كاش وتفعيل حسابات الأطباء',
                   icon: Icons.receipt_long_rounded,
                   color: Colors.indigo,
-                  onTap: () => setState(() => _selectedTabIndex = 7),
+                  onTap: () => setState(() => _selectedTabIndex = 9),
                 ),
               ),
             ],

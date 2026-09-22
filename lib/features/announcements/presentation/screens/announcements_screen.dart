@@ -279,7 +279,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
     final activeCount = _announcements.where((a) => a['is_active'] == true).length;
     final partnersCount = _announcements.where((a) {
       final role = (a['target_role'] ?? '').toString().toUpperCase();
-      return role == 'DOCTOR' || role == 'PHARMACY';
+      return role == 'DOCTOR' || role == 'PHARMACY' || role == 'LAB';
     }).length;
     final urgentCount = _announcements.where((a) {
       final p = (a['priority'] ?? a['announcement_type'] ?? '').toString().toUpperCase();
@@ -295,8 +295,9 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
       if (_selectedFilter == 'نشطة فقط 🟢' && !isActive) return false;
       if (_selectedFilter == 'للأطباء 🩺' && role != 'DOCTOR' && role != 'DOCTORS_EXPIRING') return false;
       if (_selectedFilter == 'للصيدليات 💊' && role != 'PHARMACY' && role != 'PHARMACIES_EXPIRING') return false;
+      if (_selectedFilter == 'للمعامل 🧪' && role != 'LAB' && role != 'LABS_EXPIRING') return false;
       if (_selectedFilter == 'للمرضى 👥' && role != 'PATIENT') return false;
-      if (_selectedFilter == 'تجديد اشتراكات ⏳' && role != 'DOCTORS_EXPIRING' && role != 'PHARMACIES_EXPIRING') return false;
+      if (_selectedFilter == 'تجديد اشتراكات ⏳' && role != 'DOCTORS_EXPIRING' && role != 'PHARMACIES_EXPIRING' && role != 'LABS_EXPIRING') return false;
       if (_selectedFilter == 'عاجلة ⚡' && priority != 'URGENT') return false;
 
       if (_searchQuery.trim().isEmpty) return true;
@@ -350,7 +351,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'إرسال وإدارة التنبيهات المباشرة للأطباء، الصيدليات، والمرضى وبث الإعلانات الرسمية اللحظية',
+                    'إرسال وإدارة التنبيهات المباشرة للأطباء، الصيدليات، المعامل، والمرضى وبث الإعلانات الرسمية اللحظية',
                     style: GoogleFonts.cairo(fontSize: 12.5, color: AdminColors.textSecondary),
                   ),
                 ],
@@ -403,7 +404,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                 child: _buildKpiCard(
                   title: 'موجهة للشركاء 🩺',
                   count: partnersCount,
-                  subtitle: 'للأطباء والصيدليات',
+                  subtitle: 'للأطباء والصيدليات والمعامل',
                   icon: Icons.medical_services_rounded,
                   color: AdminColors.primaryDark, // Teal
                   bgColor: const Color(0xFFF0FDF4),
@@ -572,9 +573,11 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                                 _buildRoleChip('جميع المستخدمين 🌐', 'ALL'),
                                 _buildRoleChip('الأطباء والعيادات 🩺', 'DOCTOR'),
                                 _buildRoleChip('الصيدليات فقط 💊', 'PHARMACY'),
+                                _buildRoleChip('المعامل فقط 🧪', 'LAB'),
                                 _buildRoleChip('المرضى فقط 👥', 'PATIENT'),
                                 _buildRoleChip('⏳ أطباء ينتهي اشتراكهم قريباً', 'DOCTORS_EXPIRING'),
                                 _buildRoleChip('⏳ صيدليات ينتهي اشتراكها قريباً', 'PHARMACIES_EXPIRING'),
+                                _buildRoleChip('⏳ معامل ينتهي اشتراكها قريباً', 'LABS_EXPIRING'),
                               ],
                             ),
                           ),
@@ -601,7 +604,9 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                                   Text(
                                     _targetRole == 'DOCTORS_EXPIRING'
                                         ? 'تحديد مهلة أيام انتهاء اشتراك الأطباء:'
-                                        : 'تحديد مهلة أيام انتهاء اشتراك الصيدليات:',
+                                        : (_targetRole == 'LABS_EXPIRING'
+                                            ? 'تحديد مهلة أيام انتهاء اشتراك المعامل:'
+                                            : 'تحديد مهلة أيام انتهاء اشتراك الصيدليات:'),
                                     style: GoogleFonts.cairo(fontWeight: FontWeight.w900, fontSize: 12.5, color: const Color(0xFF92400E)),
                                   ),
                                   const Spacer(),
@@ -619,6 +624,9 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                                       if (_targetRole == 'DOCTORS_EXPIRING') {
                                         _titleController.text = 'تذكير: موعد تجديد اشتراك عيادتكم في منصة كشفك ⏳';
                                         _contentController.text = 'عزيزي الطبيب، نود إحاطتكم علماً بقرب انتهاء اشتراك عيادتكم خلال $_daysThreshold أيام. يرجى التكرم بالمبادرة بالتجديد لضمان استمرار ظهور العيادة واستقبال حجوزات المرضى دون انقطاع 💚';
+                                      } else if (_targetRole == 'LABS_EXPIRING') {
+                                        _titleController.text = 'تذكير: موعد تجديد اشتراك معملكم في منصة كشفك 🧪';
+                                        _contentController.text = 'إدارة المعمل العزيزة، نود تذكيركم بأن اشتراك المعمل في منصة كشفك يقترب من الانتهاء خلال $_daysThreshold أيام. يرجى المبادرة بالتجديد لاستمرار ظهور المعمل واستقبال نتائج المرضى.';
                                       } else {
                                         _titleController.text = 'تذكير: موعد تجديد اشتراك صيدليتكم في منصة كشفك 💊';
                                         _contentController.text = 'دكتور الصيدلية العزيز، نود تذكيركم بأن اشتراك صيدليتكم في منصة كشفك يقترب من الانتهاء خلال $_daysThreshold أيام. يرجى المبادرة بسداد التجديد لاستمرار استقبال الروشتات والطلبات.';
@@ -821,7 +829,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
               ),
               const SizedBox(width: 14),
               AdminFilterChips(
-                options: const ['الكل', 'نشطة فقط 🟢', 'للأطباء 🩺', 'للصيدليات 💊', 'للمرضى 👥', 'تجديد اشتراكات ⏳', 'عاجلة ⚡'],
+                options: const ['الكل', 'نشطة فقط 🟢', 'للأطباء 🩺', 'للصيدليات 💊', 'للمعامل 🧪', 'للمرضى 👥', 'تجديد اشتراكات ⏳', 'عاجلة ⚡'],
                 selectedOption: _selectedFilter,
                 onSelected: (val) => setState(() => _selectedFilter = val),
               ),
@@ -977,17 +985,21 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
     }
 
     // Friendly Role Label
-    String roleLabel = 'كافة المنظومة (مرضى، أطباء، صيدليات) 🌐';
+    String roleLabel = 'كافة المنظومة (مرضى، أطباء، صيدليات، معامل) 🌐';
     if (targetRole == 'DOCTOR') {
        roleLabel = 'الأطباء والعيادات فقط 🩺';
     } else if (targetRole == 'PHARMACY') {
        roleLabel = 'الصيدليات فقط 💊';
+    } else if (targetRole == 'LAB') {
+       roleLabel = 'المعامل فقط 🧪';
     } else if (targetRole == 'PATIENT') {
        roleLabel = 'المرضى فقط 👥';
     } else if (targetRole == 'DOCTORS_EXPIRING') {
        roleLabel = 'أطباء ينتهي اشتراكهم قريباً ⏳🩺';
     } else if (targetRole == 'PHARMACIES_EXPIRING') {
        roleLabel = 'صيدليات ينتهي اشتراكها قريباً ⏳💊';
+    } else if (targetRole == 'LABS_EXPIRING') {
+       roleLabel = 'معامل ينتهي اشتراكها قريباً ⏳🧪';
     }
 
     return Container(

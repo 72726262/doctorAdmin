@@ -25,7 +25,7 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
   static final Map<String, List<Map<String, dynamic>>> _cache = {};
 
   int _selectedTabIndex = 0; // 0: PENDING, 1: APPROVED, 2: REJECTED
-  String _selectedRoleFilter = 'ALL'; // 'ALL', 'doctor', 'pharmacy'
+  String _selectedRoleFilter = 'ALL'; // 'ALL', 'doctor', 'pharmacy', 'lab'
   String _searchQuery = '';
   bool _isLoading = true;
   List<Map<String, dynamic>> _verificationsList = [];
@@ -137,7 +137,7 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
         query = query.eq('status', _currentStatusTab);
       }
       if (_selectedRoleFilter != 'ALL') {
-        query = query.eq('role', _selectedRoleFilter);
+        query = query.eq('role', _selectedRoleFilter.toUpperCase());
       }
 
       final res = await query.order('created_at', ascending: false);
@@ -161,7 +161,8 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
     final fullName = item['full_name'] as String? ?? 'الشريك الجديد';
     final role = (item['role'] as String? ?? 'DOCTOR').toUpperCase();
     final isDoctor = role == 'DOCTOR';
-    final specialty = item['specialty'] as String? ?? (isDoctor ? 'تخصص عام' : 'صيدلية مجتمعية');
+    final isLab = role == 'LAB';
+    final specialty = item['specialty'] as String? ?? (isDoctor ? 'تخصص عام' : (isLab ? 'معمل تحاليل' : 'صيدلية مجتمعية'));
     final governorate = item['governorate'] as String? ?? 'مصر';
     final phone = item['phone'] as String? ?? 'غير متوفر';
 
@@ -230,7 +231,9 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
                             radius: 20,
                             backgroundColor: AdminColors.primaryDark.withValues(alpha: 0.1),
                             child: Icon(
-                              isDoctor ? Icons.medical_services_rounded : Icons.local_pharmacy_rounded,
+                              isLab
+                                  ? Icons.biotech_rounded
+                                  : (isDoctor ? Icons.medical_services_rounded : Icons.local_pharmacy_rounded),
                               color: AdminColors.primaryDark,
                               size: 20,
                             ),
@@ -255,7 +258,7 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
                                         border: Border.all(color: isDoctor ? AdminColors.cardBorderMint : Colors.teal.shade200),
                                       ),
                                       child: Text(
-                                        isDoctor ? 'طبيب جديد 🩺' : 'صيدلية جديدة 💊',
+                                        isDoctor ? 'طبيب جديد' : (isLab ? 'معمل جديد' : 'صيدلية جديدة'),
                                         style: GoogleFonts.cairo(fontSize: 10.5, fontWeight: FontWeight.bold, color: AdminColors.primaryDark),
                                       ),
                                     ),
@@ -1098,14 +1101,17 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
                   Text('التصنيف:', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13, color: AdminColors.textPrimary)),
                   const SizedBox(width: 8),
                   AdminFilterChips(
-                    options: const ['الكل 🌐', 'أطباء 🩺', 'صيدليات 💊'],
+                    options: const ['الكل', 'أطباء', 'صيدليات', 'معامل'],
                     selectedOption: _selectedRoleFilter == 'ALL'
-                        ? 'الكل 🌐'
-                        : (_selectedRoleFilter == 'doctor' ? 'أطباء 🩺' : 'صيدليات 💊'),
+                        ? 'الكل'
+                        : (_selectedRoleFilter == 'doctor'
+                            ? 'أطباء'
+                            : (_selectedRoleFilter == 'pharmacy' ? 'صيدليات' : 'معامل')),
                     onSelected: (val) {
                       String roleKey = 'ALL';
-                      if (val.contains('أطباء')) roleKey = 'doctor';
-                      if (val.contains('صيدليات')) roleKey = 'pharmacy';
+                      if (val == 'أطباء') roleKey = 'doctor';
+                      if (val == 'صيدليات') roleKey = 'pharmacy';
+                      if (val == 'معامل') roleKey = 'lab';
                       setState(() => _selectedRoleFilter = roleKey);
                       _onFilterChanged();
                     },
@@ -1284,10 +1290,11 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
   Widget _buildVerificationCard(Map<String, dynamic> item) {
     final role = (item['role'] as String? ?? 'doctor').toLowerCase();
     final isDoctor = role.contains('doc');
+    final isLab = role == 'lab';
     final fullName = item['full_name'] as String? ?? 'غير محدد';
     final phone = item['phone'] as String? ?? 'لا يوجد';
     final governorate = item['governorate'] as String? ?? 'مصر';
-    final specialty = item['specialty'] as String? ?? (isDoctor ? 'طب عام' : 'صيدلية');
+    final specialty = item['specialty'] as String? ?? (isDoctor ? 'طب عام' : (isLab ? 'معمل تحاليل' : 'صيدلية'));
     final bio = item['bio'] as String? ?? '';
     final status = item['status'] as String? ?? 'PENDING';
     final rejectionReason = item['rejection_reason'] as String?;
@@ -1336,7 +1343,9 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
                       radius: 24,
                       backgroundColor: isDoctor ? AdminColors.primaryDark.withValues(alpha: 0.1) : AdminColors.accentMint.withValues(alpha: 0.15),
                       child: Icon(
-                        isDoctor ? Icons.medical_services_rounded : Icons.local_pharmacy_rounded,
+                        isLab
+                            ? Icons.biotech_rounded
+                            : (isDoctor ? Icons.medical_services_rounded : Icons.local_pharmacy_rounded),
                         color: isDoctor ? AdminColors.primaryDark : AdminColors.accentMint,
                         size: 26,
                       ),
@@ -1359,7 +1368,7 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
-                                isDoctor ? 'طبيب 🩺' : 'صيدلية 💊',
+                                isDoctor ? 'طبيب' : (isLab ? 'معمل' : 'صيدلية'),
                                 style: GoogleFonts.cairo(
                                   fontSize: 11,
                                   fontWeight: FontWeight.bold,
@@ -1467,7 +1476,7 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
                 if (syndicateUrl.isNotEmpty)
                   _buildDocThumbnail(syndicateUrl, 'كارنيه النقابة الساري'),
                 if (licenseUrl.isNotEmpty)
-                  _buildDocThumbnail(licenseUrl, isDoctor ? 'تصريح مزاولة المهنة' : 'السجل التجاري والبطاقة الضريبية'),
+                  _buildDocThumbnail(licenseUrl, isDoctor ? 'تصريح مزاولة المهنة' : (isLab ? 'ترخيص المعمل' : 'السجل التجاري والبطاقة الضريبية')),
                 if (frontUrl.isEmpty && backUrl.isEmpty && syndicateUrl.isEmpty && licenseUrl.isEmpty)
                   Container(
                     padding: const EdgeInsets.all(12),
